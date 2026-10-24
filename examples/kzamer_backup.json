@@ -1,0 +1,43 @@
+{
+  "app": "k-zamer",
+  "version": 1,
+  "exportedAt": "2026-10-20T10:00:00.000Z",
+  "orders": [
+    {
+      "id": "o_demo1",
+      "createdAt": 1792400000000,
+      "customer": { "client": "Иванов И. И.", "phone": "", "address": "ул. Ленина, 5, кв. 12", "comment": "" },
+      "items": [
+        {
+          "id": "i1",
+          "templateId": "window",
+          "values": {
+            "width": 1800, "height": 1500, "sashes": "2", "direction": "Внутрь",
+            "s1_type": "Поворотно-откидное", "s1_w": 1100, "s1_handle": "Правая",
+            "s2_type": "Глухое", "s2_w": 700
+          }
+        },
+        {
+          "id": "i2",
+          "templateId": "door",
+          "values": { "width": 900, "height": 2100, "side": "Левая", "direction": "Наружу", "doorType": "Распашная" }
+        },
+        {
+          "id": "i3",
+          "templateId": "balcony",
+          "values": { "blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Левое", "direction": "Внутрь" }
+        },
+        {
+          "id": "i4",
+          "templateId": "loggia",
+          "values": { "length": 3000, "height": 1500, "sections": 4 }
+        },
+        {
+          "id": "i5",
+          "templateId": "vitrazh",
+          "values": { "width": 3000, "height": 2700, "columns": 4, "rows": 2 }
+        }
+      ]
+    }
+  ]
+}
