@@ -85,6 +85,9 @@ def kzamer_item(template_id: str, values: dict[str, Any]) -> dict[str, Any]:
                   "outward": _outward(v.get("direction"))}
         if str(v.get("view") or "") == "Снаружи":
             params["view"] = "outside"
+        if _num(v.get("transomTop")) > 0:
+            params["transom_top"] = _num(v.get("transomTop"))
+        params["transom_type"] = str(v.get("transomType") or "Откидная внутрь")
         return {"kind": "balcony", "params": params, "name": "Балконный блок"}
     if t == "partition":
         name = "Перегородка" + (" с дверью" if v.get("withDoor") in (True, "true", "1", 1) else "")

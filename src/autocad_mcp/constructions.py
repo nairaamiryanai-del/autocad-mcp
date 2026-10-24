@@ -83,7 +83,25 @@ def _opening_symbol(x: float, y: float, w: float, h: float, typ: str,
         apex = (x + w / 2, y + h)  # вершина сверху
         ops.append(_line(apex, (x, y), L_OPEN, outward))
         ops.append(_line(apex, (x + w, y), L_OPEN, outward))
+    if "подвес" in t:
+        apex = (x + w / 2, y)  # откидная наружу вокруг верхней оси: ручка и вершина снизу
+        ops.append(_line(apex, (x, y + h), L_OPEN, outward))
+        ops.append(_line(apex, (x + w, y + h), L_OPEN, outward))
     return ops
+
+
+def transom_symbol(transom_type: str) -> str:
+    """Глухая / Откидная внутрь (вокруг нижней оси) / Откидная наружу (вокруг верхней оси)."""
+    t = str(transom_type or "").lower()
+    if "откид" not in t:
+        return "Глухое"
+    return "Подвесное" if "наруж" in t else "Откидное"
+
+
+def _transom_dashed(p: dict[str, Any]) -> bool:
+    """Пунктир фрамуги по её собственному направлению: открывается от смотрящего.
+    build() отражает вид снаружи после построения, поэтому здесь учитываем вид явно."""
+    return ("наруж" in str(p.get("transom_type") or "").lower()) != is_outside_view(p)
 
 
 def _transoms(p: dict[str, Any], W: float, H: float, f: float, outward: bool) -> tuple[float, float, list[Op]]:
@@ -99,8 +117,9 @@ def _transoms(p: dict[str, Any], W: float, H: float, f: float, outward: bool) ->
     if top:
         ops.append(_line((f, hi), (W - f, hi), L_MULLION))
         ops.append(_rect(f + 20, hi + 20, W - 2 * f - 40, H - f - hi - 40, L_SASH))
-        if "откид" in str(p.get("transom_type") or "").lower():
-            ops += _opening_symbol(f + 20, hi + 20, W - 2 * f - 40, H - f - hi - 40, "Откидное", "", outward)
+        sym = transom_symbol(str(p.get("transom_type") or ""))
+        if sym != "Глухое":
+            ops += _opening_symbol(f + 20, hi + 20, W - 2 * f - 40, H - f - hi - 40, sym, "", _transom_dashed(p))
         ops.append(_dim((W, hi), (W, H), 350, 90, text=str(int(round(top)))))
     if bottom:
         ops.append(_line((f, lo), (W - f, lo), L_MULLION))
@@ -291,7 +310,8 @@ def build_sliding(p: dict[str, Any]) -> list[Op]:
 
 def build_balcony(p: dict[str, Any]) -> list[Op]:
     """Балконный блок: дверь слева + окно (откидная фрамуга сверху, глухое снизу).
-    p = {width,height,door_width,door_side(петли Левое/Правое),outward,profile}."""
+    p = {width,height,door_width,door_side(петли, вид изнутри),outward,profile,
+         transom_top (фрамуга окна, мм до оси импоста), transom_type (Откидная внутрь/наружу, Глухая)}."""
     W = float(p.get("width") or 0)
     H = float(p.get("height") or 0)
     if W <= 0 or H <= 0:
@@ -311,10 +331,19 @@ def build_balcony(p: dict[str, Any]) -> list[Op]:
     wx = ix + door_w
     ops.append(_line((wx, iy), (wx, iy + ih), L_MULLION))
     ww = ix + iw - wx
-    ty = iy + ih * 0.68  # фрамуга: верхние 32 %
+    # фрамуга окна: transom_top мм от верха рамы до оси импоста, без замера условно верхние 32 %
+    top = float(p.get("transom_top") or 0)
+    if top and not 100 < top < H - 300:
+        raise ValueError("Фрамуга балконного блока не помещается по высоте")
+    ty = H - top if top else iy + ih * 0.68
+    ttype = str(p.get("transom_type") or "Откидная внутрь")
     ops.append(_line((wx, ty), (wx + ww, ty), L_MULLION))
     ops.append(_rect(wx + 20, ty + 20, ww - 40, iy + ih - ty - 40, L_SASH))
-    ops += _opening_symbol(wx + 20, ty + 20, ww - 40, iy + ih - ty - 40, "Откидное", "", outward)
+    sym = transom_symbol(ttype)
+    if sym != "Глухое":
+        ops += _opening_symbol(wx + 20, ty + 20, ww - 40, iy + ih - ty - 40, sym, "", _transom_dashed({**p, "transom_type": ttype}))
+    if top:
+        ops.append(_dim((W, ty), (W, H), 350, 90, text=str(int(round(top)))))
     ops.append(_text((wx + ww / 2, iy + (ty - iy) / 2), "глухое", min(ww, ty - iy) * 0.1, L_TEXT))
     ops.append(_dim((0, H), (dw, H), 180, 0))
     ops.append(_dim((dw, H), (W, H), 180, 0))
