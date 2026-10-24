@@ -45,6 +45,7 @@ class EzdxfEngine:
         self.stacker = DimStacker()
         self.bbox = BBox()
         self.last_sheet: dict[str, Any] | None = None
+        self.sheets: list[dict[str, Any]] = []  # все листы make_sheet текущего чертежа
         self.new_drawing()
 
     # --- служебное ---
@@ -67,6 +68,7 @@ class EzdxfEngine:
         std.dxf.font = FONT
         self.stacker.reset()
         self.last_sheet = None
+        self.sheets = []
 
     def new_drawing(self, template: str | None = None) -> str:
         self.doc = ezdxf.new("R2018", setup=True)
@@ -407,7 +409,8 @@ class EzdxfEngine:
                 out.append(self.add_circle(op["center"], op["r"], op.get("layer", "0")))
             elif k == "text":
                 out.append(self.add_text(op["pos"], op["text"], op.get("height") or text_height,
-                                         op.get("layer", C.L_TEXT), op.get("align", "center")))
+                                         op.get("layer", C.L_TEXT), op.get("align", "center"),
+                                         op.get("rotation", 0.0)))
             elif k == "dim":
                 out.append(self.add_linear_dim(op["p1"], op["p2"], op.get("offset", 0), op.get("angle", 0),
                                                op.get("layer", C.L_DIM), op.get("text"),

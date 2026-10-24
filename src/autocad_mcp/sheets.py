@@ -54,8 +54,16 @@ def _rect(x, y, w, h, lw: float | None = None) -> dict[str, Any]:
     return op
 
 
-def _txt(x, y, text, h, align="center", layer=L_SHEET) -> dict[str, Any]:
-    return {"op": "text", "pos": (x, y), "text": str(text), "height": h, "layer": layer, "align": align}
+def _txt(x, y, text, h, align="center", layer=L_SHEET, rotation: float = 0) -> dict[str, Any]:
+    op = {"op": "text", "pos": (x, y), "text": str(text), "height": h, "layer": layer, "align": align}
+    if rotation:
+        op["rotation"] = rotation
+    return op
+
+
+# дополнительные графы ГОСТ 2.104 на левом поле (снизу вверх): номер графы, подпись, высота, мм
+SIDE_BOTTOM = [("Инв. № подл.", 25), ("Подп. и дата", 35), ("Взам. инв. №", 25), ("Инв. № дубл.", 25), ("Подп. и дата", 35)]
+SIDE_TOP = [("Перв. примен.", 60), ("Справ. №", 60)]  # сверху вниз
 
 
 def choose_scale(area_w: float, area_h: float, field_w: float, field_h: float) -> float:
@@ -66,7 +74,7 @@ def choose_scale(area_w: float, area_h: float, field_w: float, field_h: float) -
 
 
 def sheet_ops(fmt: str, landscape: bool, scale: float | None, area: list[float] | None,
-              fields: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+              fields: dict[str, Any], side_stamp: bool = True) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Рамка формата с основной надписью вокруг области area=[x1,y1,x2,y2] (координаты модели).
 
     scale=None/0: подобрать стандартный масштаб, чтобы область поместилась.
@@ -104,14 +112,32 @@ def sheet_ops(fmt: str, landscape: bool, scale: float | None, area: list[float] 
         r = _rect(*P(x, y), w * n, h * n, THICK if thick else None)
         ops.append(r)
 
-    def text(x, y, s, h, align="center", width=None):
+    def text(x, y, s, h, align="center", width=None, rotation=0):
         if s in (None, ""):
             return
         hh = fit_height(str(s), h, width) if width else h
-        ops.append(_txt(*P(x, y), s, hh * n, align))
+        ops.append(_txt(*P(x, y), s, hh * n, align, rotation=rotation))
 
     rect(0, 0, pw, ph)                          # граница листа (тонкая)
     rect(20, 5, pw - 25, ph - 10, thick=True)   # рамка
+
+    if side_stamp:
+        # графы 19-23 снизу и 24-25 сверху на левом поле: подпись 5 мм + поле 7 мм (ГОСТ 2.104)
+        def strip(y0: float, cells: list[tuple[str, float]], up: bool) -> None:
+            y = y0
+            for label, hgt in cells:
+                ya, yb = (y, y + hgt) if up else (y - hgt, y)
+                rect(8, ya, 12, hgt, thick=True)
+                line(13, ya, 13, yb, thick=True)
+                text(10.5, (ya + yb) / 2, label, 2.5, width=hgt - 2, rotation=90)
+                y = yb if up else ya
+
+        strip(5, SIDE_BOTTOM, up=True)
+        if ph - 10 >= sum(h for _, h in SIDE_BOTTOM) + sum(h for _, h in SIDE_TOP):
+            strip(ph - 5, SIDE_TOP, up=False)
+        # под рамкой справа: «Копировал» и формат (ГОСТ 2.104, графы 29-30)
+        text(pw - 5 - TB_W + 100, 2.5, "Копировал", 2.5, "mleft", width=40)
+        text(pw - 5 - 40, 2.5, f"Формат {fmt.upper().replace('А', 'A')}", 2.5, "mleft", width=38)
 
     # основная надпись: левый нижний угол
     X, Y = pw - 5 - TB_W, 5.0

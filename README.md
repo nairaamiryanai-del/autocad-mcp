@@ -6,7 +6,7 @@
 - **Без AutoCAD тоже работает:** режим ezdxf создаёт DXF на Windows, macOS и Linux.
 - **Любой AI-помощник:** Claude Desktop, Claude Code, Cursor, VS Code (Copilot), Windsurf, LM Studio и другие программы с поддержкой MCP. Подключение локально (stdio) или по сети (HTTP).
 
-*English: MCP server for AutoCAD (any version via COM on Windows) and DXF without AutoCAD (ezdxf, any OS). 55 tools: drawing, dimensions, layers, blocks, tables, title-block sheets, building plans, windows/doors from measurements. Works with any MCP client over stdio or HTTP. Install on Windows: `irm https://raw.githubusercontent.com/nairaamiryanai-del/autocad-mcp/main/install.ps1 | iex`.*
+*English: MCP server for AutoCAD (any version via COM on Windows) and DXF without AutoCAD (ezdxf, any OS). 58 tools: drawing, dimensions, layers, blocks, tables, title-block sheets, building plans, windows/doors from measurements. Works with any MCP client over stdio or HTTP. Install on Windows: `irm https://raw.githubusercontent.com/nairaamiryanai-del/autocad-mcp/main/install.ps1 | iex`.*
 
 ## Установка
 
@@ -80,7 +80,7 @@ autocad-mcp --http --host 0.0.0.0 --token СЕКРЕТ     # из локальн
 
 Чтобы файл открылся в старой версии, сохраните в её формате: `save_drawing(version="2013")`. Годы форматов: 2018, 2013, 2010, 2007, 2004, 2000; можно указать год своей версии (2016 сохранится в формате 2013).
 
-## Инструменты (55)
+## Инструменты (58)
 
 | Группа | Инструменты |
 |--------|-------------|
@@ -92,7 +92,8 @@ autocad-mcp --http --host 0.0.0.0 --token СЕКРЕТ     # из локальн
 | Слои | `create_layer`, `set_layer`, `delete_layer`, `list_layers` |
 | Объекты | `list_entities`, `select_entities`, `get_entity`, `transform_entities`, `erase_entities`, `set_properties`, `offset_entity`, `measure` |
 | Блоки и таблицы | `create_block`, `insert_block`, `list_blocks`, `add_table` |
-| Листы и вывод | `make_sheet` (рамка A4-A1, основная надпись ГОСТ 2.104), `export_pdf`, `render_preview` (PNG для проверки) |
+| Листы и вывод | `make_sheet` (рамка A4-A1, основная надпись ГОСТ 2.104, боковые графы «Инв. № подл.» и др., «Копировал / Формат»), `export_pdf` (`all_sheets=True`: все листы одним многостраничным PDF), `render_preview` (PNG для проверки) |
+| Расчёт и профили | `static_calc` (прогиб стойки, импоста или стропила по СНиП 2.01.07-85*: снег, ветер, вес стекла; подбор профиля; лист расчёта А4), `list_profiles`, `set_profile` (каталог: артикул, назначение, глубина, Ix) |
 | Окна и двери | `draw_construction`, `draw_order`, `import_order` (заказы из приложения «К-Замер») |
 | Прочее | `zoom`, `purge`, `undo`, `run_command` (прямая команда AutoCAD) |
 
@@ -146,6 +147,7 @@ python tests/fixes_check.py ezdxf          # цвет слоя, шрифт, вы
 python tests/features_check.py ezdxf       # все группы инструментов (или com)
 python tests/universal_check.py            # пакет, массивы, оси, стены, версии форматов, CLI, HTTP с ключом
 python tests/scheme_check.py               # петли, фрамуги и вид снаружи при импорте из «К-Замер»
+python tests/project_check.py              # рамка с боковыми графами, многостраничный PDF, статрасчёт (эталон: Jx 407,85) (или com)
 python tests/com_threads_test.py           # COM из разных потоков
 TEST_ENGINE=ezdxf python tests/stdio_client_test.py   # через протокол MCP (или com)
 ```

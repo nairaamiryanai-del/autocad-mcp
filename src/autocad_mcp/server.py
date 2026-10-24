@@ -399,7 +399,7 @@ def _render(eng, ops: list[dict[str, Any]], text_height: float | None = None) ->
             out.append(eng.add_polyline(op["points"], op.get("closed", True), layer))
         elif k == "text":
             out.append(eng.add_text(op["pos"], op["text"], op.get("height") or text_height, layer,
-                                    op.get("align", "center")))
+                                    op.get("align", "center"), op.get("rotation", 0.0)))
     return out
 
 
@@ -810,35 +810,46 @@ def add_table(x: float, y: float, rows: list[list[Any]], header: list[str] | Non
     "Лист: рамка формата A4/A3/A2/A1 (landscape) в модели в масштабе 1:scale (0 = подобрать) вокруг "
     "области area [x1,y1,x2,y2] или всего чертежа, с основной надписью ГОСТ 2.104 (форма 1): title "
     "(наименование), number (обозначение), developer, checker, date, organization, sheet/sheets. "
-    "После него export_pdf без параметров печатает этот лист."
+    "side_stamp: дополнительные графы на левом поле (Инв. № подл., Подп. и дата, Взам. инв. №, Перв. примен.) "
+    "и «Копировал / Формат» под рамкой. После него export_pdf без параметров печатает этот лист, "
+    "export_pdf(all_sheets=True) все листы чертежа одним PDF."
 ))
 def make_sheet(format: str = "A3", landscape: bool = True, scale: float = 0, area: list[float] | None = None,
                title: str = "", number: str = "", developer: str = "", checker: str = "",
-               date: str = "", organization: str = "", sheet: int = 1, sheets: int = 1) -> str:
+               date: str = "", organization: str = "", sheet: int = 1, sheets: int = 1,
+               side_stamp: bool = True) -> str:
     eng = engine()
     box = _area(area) or eng.extents()
     if not box:
         raise ValueError("Чертёж пуст: укажите area")
     fields = {"title": title, "number": number, "developer": developer, "checker": checker, "date": date,
               "organization": organization, "sheet": sheet, "sheets": sheets}
-    ops, info = S.sheet_ops(format, landscape, scale or None, box, fields)
+    ops, info = S.sheet_ops(format, landscape, scale or None, box, fields, side_stamp)
     eng.render_ops(ops)
+    info["sheet"] = sheet
     eng.last_sheet = info
+    eng.sheets.append(info)
     if not info["fits"]:
         info["warning"] = f"Область не помещается в {format} при 1:{info['scale']:g}: возьмите масштаб мельче или формат больше"
     return _ok(info)
 
 
 @tool(description=(
-    "PDF. Без area/format печатает последний лист make_sheet в его масштабе; иначе format (A4..A1), "
+    "PDF. Без area/format печатает последний лист make_sheet в его масштабе; all_sheets=True: все листы "
+    "make_sheet этого чертежа одним многостраничным PDF (по номерам листов). Иначе format (A4..A1), "
     "landscape, area [x1,y1,x2,y2] или весь чертёж, scale 1:N (0 = вписать). monochrome: чёрно-белый. "
     "COM: плоттер DWG To PDF.pc3; ezdxf: matplotlib."
 ))
 def export_pdf(path: str | None = None, format: str | None = None, landscape: bool = True,
-               area: list[float] | None = None, scale: float = 0, monochrome: bool = False) -> str:
+               area: list[float] | None = None, scale: float = 0, monochrome: bool = False,
+               all_sheets: bool = False) -> str:
     eng = engine()
     sheet = eng.last_sheet
     target = _out(path, "drawing", ".pdf")
+    if all_sheets:
+        if not eng.sheets:
+            raise ValueError("В чертеже нет листов: сначала make_sheet")
+        return _ok(_export_sheets(eng, target, monochrome))
     if sheet and not area and not format:
         res = eng.export_pdf(target, sheet["frame"], tuple(sheet["paper_mm"]), sheet["scale"], monochrome,
                              paper_name=sheet["format"])
@@ -847,6 +858,81 @@ def export_pdf(path: str | None = None, format: str | None = None, landscape: bo
         res = eng.export_pdf(target, _area(area), S.paper_size(fmt, landscape), scale or None, monochrome,
                              paper_name=fmt.upper())
     return _ok(res)
+
+
+# ------------------------------------------------------- профили и расчёт
+
+@tool(description="Каталог профилей: артикул, назначение (стойка/ригель/стропило/рама/импост/створка/прижим/крышка), глубина, Ix см4.")
+def list_profiles() -> str:
+    from . import profiles as P
+
+    return _ok(P.load(OUT_DIR))
+
+
+@tool(description=(
+    "Добавить или исправить профиль в каталоге: article, name, role (стойка, ригель, стропило, рама, импост, створка, "
+    "прижим, крышка, прочее), depth_mm, ix_cm4 (момент инерции для статрасчёта, по каталогу системодателя)."
+))
+def set_profile(article: str, name: str = "", role: str = "прочее", depth_mm: float | None = None,
+                ix_cm4: float | None = None) -> str:
+    from . import profiles as P
+
+    return _ok(P.save_one(OUT_DIR, {"article": article, "name": name, "role": role, "depth_mm": depth_mm, "ix_cm4": ix_cm4}))
+
+
+@tool(description=(
+    "СТАТИЧЕСКИЙ РАСЧЁТ стойки, импоста или стропила на прогиб (СНиП 2.01.07-85*, табл. 42 СНиП 2.03.06-85), как в проектах. "
+    "length_mm: длина элемента между опорами, angle_deg: угол к горизонтали (90 = вертикальная стойка), step_mm: шаг стоек, "
+    "glass_mm: общая толщина стекла в стеклопакете, snow_region I..VIII, wind_region Iа..VII, terrain A/B/C, height_m: "
+    "высота объекта, igu: стеклопакет (прогиб L/300) или одинарное стекло (L/200), steel: сталь вместо алюминия. "
+    "Профиль подбирается из каталога (list_profiles) или задаётся article. draw=True: лист расчёта А4 в чертеже."
+))
+def static_calc(length_mm: float, angle_deg: float, step_mm: float, glass_mm: float = 12, snow_region: str = "II",
+                wind_region: str = "II", terrain: str = "B", height_m: float = 10, igu: bool = True, steel: bool = False,
+                article: str | None = None, draw: bool = True, object_name: str = "", x: float | None = None,
+                y: float | None = None, number: str = "", developer: str = "", sheet: int = 1, sheets: int = 1) -> str:
+    from . import calc as K
+    from . import calc_sheet as CS
+    from . import profiles as P
+
+    res = K.rafter_check(length_cm=length_mm / 10, angle_deg=angle_deg, step_cm=step_mm / 10, glass_mm=glass_mm,
+                         snow_region=snow_region, wind_region=wind_region, terrain=terrain, height_m=height_m,
+                         igu=igu, steel=steel, profiles=P.load(OUT_DIR), article=article)
+    if draw:
+        eng = engine()
+        if x is None or y is None:
+            box = eng.extents()
+            x = (box[2] + 1000) if box else 0.0
+            y = box[1] if box else 0.0
+        ops, info = CS.calc_sheet_ops(res, float(x), float(y), object_name,
+                                      {"number": number, "developer": developer, "sheet": sheet, "sheets": sheets})
+        with _group(eng):
+            eng.render_ops(ops, zoom=False)
+        info["sheet"] = sheet
+        eng.last_sheet = info
+        eng.sheets.append(info)
+        res["sheet"] = {"frame": info["frame"], "overflow": info["overflow"]}
+    return _ok(res)
+
+
+def _export_sheets(eng, target: str, monochrome: bool) -> dict[str, Any]:
+    """Каждый лист в свой PDF, затем склейка в один файл в порядке номеров листов."""
+    import tempfile
+
+    from pypdf import PdfWriter
+
+    order = sorted(eng.sheets, key=lambda s: (s.get("sheet") or 0))
+    writer = PdfWriter()
+    with tempfile.TemporaryDirectory() as tmp:
+        for i, sh in enumerate(order):
+            part = os.path.join(tmp, f"sheet_{i:03d}.pdf")
+            eng.export_pdf(part, sh["frame"], tuple(sh["paper_mm"]), sh["scale"], monochrome, paper_name=sh["format"])
+            writer.append(part)
+        os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
+        with open(target, "wb") as f:
+            writer.write(f)
+    return {"path": os.path.abspath(target), "pages": len(order), "bytes": os.path.getsize(target),
+            "sheets": [f"{s['format']} 1:{s['scale']:g}" for s in order]}
 
 
 @tool(description="PNG-превью чертежа (светлый фон) для проверки результата. area [x1,y1,x2,y2] или весь чертёж. Возвращает путь к файлу.")

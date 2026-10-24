@@ -194,6 +194,7 @@ class ComEngine:
         self.stacker = DimStacker()
         self.bbox = BBox()
         self.last_sheet: dict[str, Any] | None = None
+        self.sheets: list[dict[str, Any]] = []  # все листы make_sheet текущего чертежа
         self._undo_depth = 0
         self._connect()
 
@@ -232,6 +233,7 @@ class ComEngine:
         self.stacker.reset()
         self.bbox.reset()
         self.last_sheet = None
+        self.sheets = []
         self._undo_depth = 0
         if read_extents:
             self._read_extents()
@@ -763,7 +765,8 @@ class ComEngine:
                     out.append(self.add_circle(op["center"], op["r"], op.get("layer", "0")))
                 elif k == "text":
                     out.append(self.add_text(op["pos"], op["text"], op.get("height") or text_height,
-                                             op.get("layer", C.L_TEXT), op.get("align", "center")))
+                                             op.get("layer", C.L_TEXT), op.get("align", "center"),
+                                             op.get("rotation", 0.0)))
                 elif k == "dim":
                     out.append(self.add_linear_dim(op["p1"], op["p2"], op.get("offset", 0), op.get("angle", 0),
                                                    op.get("layer", C.L_DIM), op.get("text"),
