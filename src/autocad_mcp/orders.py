@@ -16,7 +16,7 @@ from . import constructions as C
 KIND_NAMES = {
     "window": "Окно", "door": "Дверь", "vitrazh": "Витраж", "balcony": "Балконный блок",
     "loggia": "Раздвижное остекление", "sliding": "Раздвижное остекление",
-    "partition": "Перегородка", "generic": "Изделие",
+    "partition": "Перегородка", "generic": "Изделие", "frame": "Изделие",
 }
 
 SPEC_HEADER = ["Поз.", "Изделие", "Ш×В, мм", "Площадь, м²", "Створки / открывание", "Кол-во"]
@@ -50,6 +50,13 @@ def kzamer_item(template_id: str, values: dict[str, Any]) -> dict[str, Any]:
     """Изделие «К-Замер» -> {kind, params, name}."""
     v = values or {}
     t = (template_id or "generic").lower()
+    if t == "construct":
+        # изделие из конструктора: схема в values.frame (JSON), название в frameName
+        params = {"width": _num(v.get("width")), "height": _num(v.get("height")), "frame": v.get("frame"),
+                  "outward": _outward(v.get("direction"))}
+        if str(v.get("view") or "") == "Снаружи":
+            params["view"] = "outside"
+        return {"kind": "frame", "params": params, "name": str(v.get("frameName") or "Изделие")}
     if t == "window":
         n = max(1, min(6, int(_num(v.get("sashes")) or 1)))
         sashes = []
@@ -125,6 +132,11 @@ def describe(kind: str, p: dict[str, Any]) -> str:
 
 def _describe(kind: str, p: dict[str, Any]) -> str:
     out = " наружу" if p.get("outward") else ""
+    if kind == "frame":
+        frame = p.get("frame")
+        if isinstance(frame, str):
+            frame = json.loads(frame)
+        return C.frame_short(frame, _num(p.get("width")), _num(p.get("height"))) + out if frame else "схема не задана"
     if kind == "window":
         sashes = p.get("sashes") or [{"type": "Поворотно-откидное", "handle": "Правая"}]
         parts = []

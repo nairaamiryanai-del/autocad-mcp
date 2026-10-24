@@ -66,11 +66,33 @@ bops = C.build("balcony", bal["params"])
 check("балкон: фрамуга по замеру (импост на 1550)", any(o["op"] == "line" and o["layer"] == C.L_MULLION and o["p1"][1] == o["p2"][1] == 1550 for o in bops))
 check("балкон: спецификация с фрамугой", "фрамуга 600, глухая" in O.describe("balcony", bal["params"]), O.describe("balcony", bal["params"]))
 
+# конструктор «К-Замер»: окно с фрамугой 1800 x 2000, П/О 1100 петли слева + глухое 700
+frame = {"split": {"dir": "h", "sizes": [500, 1500], "parts": [
+    {"fill": {"t": "tilt"}},
+    {"split": {"dir": "v", "sizes": [1100, 700], "parts": [{"fill": {"t": "tiltturn", "hinge": "left"}}, {"fill": {"t": "glass"}}]}}]}}
+cons = O.kzamer_item("construct", {"width": 1800, "height": 2000, "frame": json.dumps(frame), "frameName": "Окно с фрамугой"})
+check("конструктор: вид frame и название", cons["kind"] == "frame" and cons["name"] == "Окно с фрамугой")
+fops = C.build("frame", cons["params"])
+mull = [o for o in fops if o["op"] == "line" and o["layer"] == C.L_MULLION]
+check("конструктор: импосты на 1500 (гориз.) и x=1100", any(o["p1"][1] == o["p2"][1] == 1500 for o in mull) and any(o["p1"][0] == o["p2"][0] == 1100 for o in mull))
+turn = [o for o in fops if o["op"] == "line" and o["layer"] == C.L_OPEN and abs(o["p1"][1] - 780) < 1]  # середина створки: рама 60 + отступ 20
+check("конструктор: вершина П/О у ручки справа", bool(turn) and all(o["p1"][0] > 1000 for o in turn), f"{[o['p1'] for o in turn]}")
+check("конструктор: спецификация", O.describe("frame", cons["params"]) == "3 пол.: отк., П/О п.лев., глух.", O.describe("frame", cons["params"]))
+cons_out = O.kzamer_item("construct", {"width": 1800, "height": 2000, "frame": json.dumps(frame), "view": "Снаружи"})
+turn_o = [o for o in C.build("frame", cons_out["params"]) if o["op"] == "line" and o["layer"] == C.L_OPEN and abs(o["p1"][1] - 780) < 1]  # середина створки: рама 60 + отступ 20
+check("конструктор, вид снаружи: зеркало и пунктир", bool(turn_o) and all(o["p1"][0] < 800 and o.get("dashed") for o in turn_o))
+door = {"split": {"dir": "v", "sizes": [700, 700], "shtulp": True, "parts": [{"fill": {"t": "door", "hinge": "left"}}, {"fill": {"t": "door", "hinge": "right"}}]}}
+dops = C.build("frame", O.kzamer_item("construct", {"width": 1400, "height": 2100, "frame": json.dumps(door), "direction": "Наружу"})["params"])
+check("штульп: пунктир по центру, двери наружу пунктиром", any(o["op"] == "line" and o.get("dashed") and o["layer"] == C.L_SASH for o in dops)
+      and all(o.get("dashed") for o in dops if o["op"] == "line" and o["layer"] == C.L_OPEN))
+
 S.new_drawing()
 r = json.loads(S.import_order(json.dumps({"customer": {"client": "Тест"}, "items": [
     {"templateId": "window", "values": base}, {"templateId": "window", "values": {**base, "view": "Снаружи"}},
-    {"templateId": "door", "values": {"width": 1000, "height": 2700, "side": "Справа", "transomTop": 500}}]}, ensure_ascii=False)))
-check("import_order: 3 изделия", r["items"] == 3)
+    {"templateId": "door", "values": {"width": 1000, "height": 2700, "side": "Справа", "transomTop": 500}},
+    {"templateId": "construct", "values": {"width": 1800, "height": 2000, "frame": json.dumps(frame), "frameName": "Окно с фрамугой"}},
+    {"templateId": "construct", "values": {"width": 1400, "height": 2100, "frame": json.dumps(door), "frameName": "Дверь штульповая"}}]}, ensure_ascii=False)))
+check("import_order: 5 изделий, из них 2 из конструктора", r["items"] == 5)
 png = json.loads(S.render_preview(os.path.join(sys.argv[1], "scheme_import.png")))
 print("png:", png["path"])
 print("\n" + ("ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ" if not fails else f"ОШИБОК: {fails}"))

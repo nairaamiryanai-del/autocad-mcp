@@ -370,7 +370,145 @@ def build_rectangle(p: dict[str, Any]) -> list[Op]:
     return ops
 
 
+# ------------------------------------------------------------ конструктор «К-Замер»
+# Схема: {"fill": {"t": ..., "hinge": "left"|"right", "dir": ...}} или
+#        {"split": {"dir": "v"|"h", "sizes": [мм...], "parts": [узлы...], "shtulp": bool}}
+# Размеры кусков от края рамы до оси импоста; сумма = размер родителя (последний кусок забирает остаток).
+
+_FILL_TYPE = {"turn": "Поворотное", "door": "Поворотное", "tiltturn": "Поворотно-откидное",
+              "tilt": "Откидное", "tophung": "Подвесное"}
+_FILL_SHORT = {"glass": "глух.", "panel": "панель", "turn": "пов.", "tiltturn": "П/О", "tilt": "отк.",
+               "tophung": "отк. наружу", "door": "дверь", "slide": "разд."}
+
+
+def _fit_sizes(sizes: list[float], total: float) -> list[float]:
+    head = [round(float(s)) for s in sizes[:-1]]
+    rest = round(total) - sum(head)
+    if rest >= 50:
+        return [*head, rest]
+    tot = sum(sizes) or 1
+    out = [max(1, round(s * total / tot)) for s in sizes]
+    out[-1] = round(total) - sum(out[:-1])
+    return out
+
+
+def frame_layout(node: dict[str, Any], W: float, H: float) -> tuple[list[dict], list[dict], list[dict]]:
+    """Куски, импосты и деления схемы; координаты в мм, y от ВЕРХА рамы (как в приложении)."""
+    leaves: list[dict] = []
+    imposts: list[dict] = []
+    dims: list[dict] = []
+
+    def walk(n: dict, x: float, y: float, w: float, h: float, depth: int) -> None:
+        s = n.get("split")
+        if not s:
+            leaves.append({"x": x, "y": y, "w": w, "h": h, "fill": n.get("fill") or {"t": "glass"}})
+            return
+        v = s["dir"] == "v"
+        sizes = _fit_sizes(s["sizes"], w if v else h)
+        dims.append({"dir": s["dir"], "depth": depth, "start": x if v else y, "sizes": sizes, "box": (x, y, w, h)})
+        cur = x if v else y
+        for i, sz in enumerate(sizes):
+            if i:
+                imposts.append({"p1": (cur, y), "p2": (cur, y + h)} if v else {"p1": (x, cur), "p2": (x + w, cur)})
+                imposts[-1]["shtulp"] = bool(s.get("shtulp"))
+            walk(s["parts"][i], cur, y, sz, h, depth + 1) if v else walk(s["parts"][i], x, cur, w, sz, depth + 1)
+            cur += sz
+
+    walk(node, 0.0, 0.0, W, H, 0)
+    return leaves, imposts, dims
+
+
+def frame_short(node: dict[str, Any], W: float, H: float) -> str:
+    leaves, _, _ = frame_layout(node, W, H)
+    leaves.sort(key=lambda l: (round(l["y"]), l["x"]))
+    parts = []
+    for l in leaves:
+        f = l["fill"]
+        s = _FILL_SHORT.get(f.get("t"), "?")
+        if f.get("hinge"):
+            s += " п.прав." if f["hinge"] == "right" else " п.лев."
+        parts.append(s)
+    return f"{len(leaves)} пол.: " + ", ".join(parts)
+
+
+def build_frame(p: dict[str, Any]) -> list[Op]:
+    """Изделие из конструктора «К-Замер». p = {width, height, frame (схема или JSON), outward, view, profile}."""
+    import json as _json
+
+    W = float(p.get("width") or 0)
+    H = float(p.get("height") or 0)
+    if W <= 0 or H <= 0:
+        raise ValueError("width и height обязательны и > 0")
+    node = p.get("frame")
+    if isinstance(node, str):
+        node = _json.loads(node)
+    if not isinstance(node, dict):
+        raise ValueError("frame: схема изделия из конструктора")
+    f = float(p.get("profile") or 60)
+    outside = is_outside_view(p)
+    # build() для вида снаружи переворачивает outward; здесь нужно реальное направление
+    item_out = bool(p.get("outward")) != outside
+    ops: list[Op] = [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
+    leaves, imposts, dims = frame_layout(node, W, H)
+    cx = lambda x: max(f, min(W - f, x))  # noqa: E731
+    cy = lambda y: max(f, min(H - f, y))  # noqa: E731
+    for im in imposts:
+        (x1, y1), (x2, y2) = im["p1"], im["p2"]
+        ops.append(_line((cx(x1), H - cy(y1)), (cx(x2), H - cy(y2)), L_SASH if im["shtulp"] else L_MULLION, im["shtulp"]))
+    for l in leaves:
+        x1, x2 = cx(l["x"]), cx(l["x"] + l["w"])
+        y1, y2 = cy(l["y"]), cy(l["y"] + l["h"])
+        sx, sy, sw, sh = x1 + 20, H - y2 + 20, x2 - x1 - 40, y2 - y1 - 40
+        if sw <= 0 or sh <= 0:
+            continue
+        fill = l["fill"]
+        t = fill.get("t", "glass")
+        ops.append(_rect(sx, sy, sw, sh, L_SASH))
+        if t in ("glass", "panel"):
+            ops.append(_text((sx + sw / 2, sy + sh / 2), "глухое" if t == "glass" else "панель", min(sw, sh) * 0.1, L_TEXT))
+            continue
+        if t == "slide":
+            a = min(sw, sh) * 0.08
+            y = sy + sh / 2
+            fr_x, to_x = (sx + sw * 0.25, sx + sw * 0.75) if fill.get("dir") == "right" else (sx + sw * 0.75, sx + sw * 0.25)
+            ops += _arrow(fr_x, to_x, y, a)
+            continue
+        out = t == "tophung" or (t in ("turn", "tiltturn", "door") and item_out)
+        dashed = out != outside
+        hinge = fill.get("hinge") or "left"
+        handle = "Левая" if hinge == "right" else "Правая"
+        ops += _opening_symbol(sx, sy, sw, sh, _FILL_TYPE[t], handle, dashed)
+        if t in ("turn", "tiltturn", "door"):
+            hx = (x2 - 45) if handle == "Правая" else (x1 + 45)
+            ops += _handle(hx, sy + sh / 2)
+        if t == "door":
+            ops.append(_text((sx + sw / 2, sy + min(sh, sw) * 0.12), "дверь", min(sw, sh) * 0.08, L_TEXT))
+    # размеры кусков с той стороны, к которой прилегает деление
+    def near(a: float, b: float) -> bool:
+        return abs(a - b) < 0.5
+
+    for d in dims:
+        x, y, w, h = d["box"]
+        cur = d["start"]
+        for sz in d["sizes"]:
+            a, b = cur, cur + sz
+            cur = b
+            label = str(int(round(sz)))
+            if d["dir"] == "v" and near(y, 0):
+                ops.append(_dim((a, H), (b, H), 180 + d["depth"] * 250, 0, text=label))
+            elif d["dir"] == "v" and near(y + h, H):
+                ops.append(_dim((a, 0), (b, 0), -180 - d["depth"] * 250, 0, text=label))
+            elif d["dir"] == "h" and near(x + w, W):
+                ops.append(_dim((W, H - b), (W, H - a), 180 + d["depth"] * 250, 90, text=label))
+            elif d["dir"] == "h" and near(x, 0):
+                ops.append(_dim((0, H - b), (0, H - a), -180 - d["depth"] * 250, 90, text=label))
+    ops.append(_dim((0, 0), (W, 0), -650, 0))
+    ops.append(_dim((0, 0), (0, H), -650, 90))
+    return ops
+
+
 BUILDERS = {
+    "frame": build_frame,
     "window": build_window,
     "door": build_door,
     "vitrazh": build_vitrazh,

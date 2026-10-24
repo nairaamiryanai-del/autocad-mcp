@@ -857,11 +857,15 @@ def render_preview(path: str | None = None, area: list[float] | None = None, wid
 # ------------------------------------------------------- конструкции (К-Замер)
 
 @tool(description=(
-    "Чертёж конструкции по замеру. kind: window | door | vitrazh | balcony | loggia (раздвижное) | partition | generic. "
-    "params (мм): window={width,height,profile,outward,sashes:[{width,type,handle}]} "
-    "(type: Глухое/Поворотное/Поворотно-откидное/Откидное; handle: Левая/Правая); "
+    "Чертёж конструкции по замеру. kind: frame | window | door | vitrazh | balcony | loggia (раздвижное) | partition | generic. "
+    "frame (любая схема из конструктора): {width,height,outward,view,frame}, frame = {fill:{t,hinge,dir}} или "
+    "{split:{dir:'v'|'h',sizes:[мм],parts:[...],shtulp?}}; t: glass|panel|turn|tiltturn|tilt|tophung|door|slide, "
+    "hinge: left|right (петли, вид изнутри), sizes от края рамы до оси импоста. "
+    "params (мм): window={width,height,profile,outward,sashes:[{width,type,hinge|handle}]} "
+    "(type: Глухое/Поворотное/Поворотно-откидное/Откидное); "
     "door={width,height,side,door_type,outward}; vitrazh={width,height,columns,rows}; "
-    "balcony={width,height,door_width,door_side}; loggia={width,height,sections}; прочее={width,height,name}."
+    "balcony={width,height,door_width,door_side}; loggia={width,height,sections}; прочее={width,height,name}. "
+    "view='outside': вид снаружи."
 ))
 def draw_construction(kind: str, params: dict[str, Any]) -> str:
     ops = C.build(kind, params)
