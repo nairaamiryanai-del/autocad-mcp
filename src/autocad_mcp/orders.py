@@ -33,6 +33,19 @@ def _outward(v: Any) -> bool:
     return "наруж" in str(v or "").lower()
 
 
+def _common(v: dict[str, Any]) -> dict[str, Any]:
+    """Вид и горизонтальные импосты из замера «К-Замер»."""
+    out: dict[str, Any] = {}
+    if str(v.get("view") or "") == "Снаружи":
+        out["view"] = "outside"
+    if _num(v.get("transomTop")) > 0:
+        out["transom_top"] = _num(v.get("transomTop"))
+        out["transom_type"] = str(v.get("transomType") or "Глухая")
+    if _num(v.get("bottomPart")) > 0:
+        out["bottom_part"] = _num(v.get("bottomPart"))
+    return out
+
+
 def kzamer_item(template_id: str, values: dict[str, Any]) -> dict[str, Any]:
     """Изделие «К-Замер» -> {kind, params, name}."""
     v = values or {}
@@ -44,16 +57,18 @@ def kzamer_item(template_id: str, values: dict[str, Any]) -> dict[str, Any]:
             s: dict[str, Any] = {"type": str(v.get(f"s{i}_type") or "Поворотно-откидное")}
             if _num(v.get(f"s{i}_w")) > 0:
                 s["width"] = _num(v.get(f"s{i}_w"))
-            if v.get(f"s{i}_handle"):
+            if v.get(f"s{i}_hinge"):  # петли, вид изнутри (с октября 2026)
+                s["hinge"] = str(v[f"s{i}_hinge"])
+            elif v.get(f"s{i}_handle"):  # старые замеры: сторона ручки
                 s["handle"] = str(v[f"s{i}_handle"])
             sashes.append(s)
         params = {"width": _num(v.get("width")), "height": _num(v.get("height")),
-                  "sashes": sashes, "outward": _outward(v.get("direction"))}
+                  "sashes": sashes, "outward": _outward(v.get("direction")), **_common(v)}
         return {"kind": "window", "params": params, "name": "Окно"}
     if t == "door":
         params = {"width": _num(v.get("width")), "height": _num(v.get("height")),
                   "side": str(v.get("side") or "Левая"), "door_type": str(v.get("doorType") or "Распашная"),
-                  "outward": _outward(v.get("direction"))}
+                  "outward": _outward(v.get("direction")), **_common(v)}
         return {"kind": "door", "params": params, "name": "Дверь"}
     if t == "loggia":
         params = {"width": _num(v.get("length") or v.get("width")), "height": _num(v.get("height")),
@@ -68,13 +83,15 @@ def kzamer_item(template_id: str, values: dict[str, Any]) -> dict[str, Any]:
                   "height": _num(v.get("blockHeight") or v.get("height")),
                   "door_width": _num(v.get("doorWidth")), "door_side": str(v.get("doorOpening") or "Левое"),
                   "outward": _outward(v.get("direction"))}
+        if str(v.get("view") or "") == "Снаружи":
+            params["view"] = "outside"
         return {"kind": "balcony", "params": params, "name": "Балконный блок"}
     if t == "partition":
         name = "Перегородка" + (" с дверью" if v.get("withDoor") in (True, "true", "1", 1) else "")
-        params = {"width": _num(v.get("width")), "height": _num(v.get("height")), "name": name}
+        params = {"width": _num(v.get("width")), "height": _num(v.get("height")), "name": name, **_common(v)}
         return {"kind": "partition", "params": params, "name": name}
     name = str(v.get("name") or "Изделие")
-    params = {"width": _num(v.get("width")), "height": _num(v.get("height")), "name": name}
+    params = {"width": _num(v.get("width")), "height": _num(v.get("height")), "name": name, **_common(v)}
     return {"kind": "generic", "params": params, "name": name}
 
 
@@ -92,14 +109,29 @@ def _short_type(t: str) -> str:
 
 def describe(kind: str, p: dict[str, Any]) -> str:
     """Краткое описание створок/открывания для спецификации."""
+    base = _describe(kind, p)
+    extra = []
+    if p.get("transom_top"):
+        extra.append(f"фрамуга {_num(p['transom_top']):.0f}, {str(p.get('transom_type') or 'Глухая').lower()}")
+    if p.get("bottom_part"):
+        extra.append(f"низ {_num(p['bottom_part']):.0f}, глух.")
+    if C.is_outside_view(p):
+        extra.append("вид снаружи")
+    return "; ".join([base, *extra]) if base else "; ".join(extra)
+
+
+def _describe(kind: str, p: dict[str, Any]) -> str:
     out = " наружу" if p.get("outward") else ""
     if kind == "window":
         sashes = p.get("sashes") or [{"type": "Поворотно-откидное", "handle": "Правая"}]
         parts = []
         for s in sashes:
             st = _short_type(str(s.get("type") or ""))
+            hinge = str(s.get("hinge") or "").lower()
             h = str(s.get("handle") or "").lower()
-            if st != "глух." and h:
+            if st != "глух." and hinge:
+                st += " петли прав." if "прав" in hinge else " петли лев."
+            elif st != "глух." and h:
                 st += " прав." if "прав" in h else " лев."
             parts.append(st)
         return f"{len(sashes)} ств.: " + ", ".join(parts) + out

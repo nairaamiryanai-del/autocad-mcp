@@ -86,11 +86,55 @@ def _opening_symbol(x: float, y: float, w: float, h: float, typ: str,
     return ops
 
 
+def _transoms(p: dict[str, Any], W: float, H: float, f: float, outward: bool) -> tuple[float, float, list[Op]]:
+    """Горизонтальные импосты: transom_top (фрамуга сверху, мм от верха рамы до оси импоста),
+    transom_type (Глухая/Откидная), bottom_part (глухая часть снизу). Возвращает низ и верх основной части."""
+    top = float(p.get("transom_top") or 0)
+    bottom = float(p.get("bottom_part") or 0)
+    if top < 0 or bottom < 0 or top + bottom >= H - 2 * f - 100:
+        raise ValueError("Фрамуга и нижняя часть занимают всю высоту изделия")
+    lo = bottom if bottom else f
+    hi = H - top if top else H - f
+    ops: list[Op] = []
+    if top:
+        ops.append(_line((f, hi), (W - f, hi), L_MULLION))
+        ops.append(_rect(f + 20, hi + 20, W - 2 * f - 40, H - f - hi - 40, L_SASH))
+        if "откид" in str(p.get("transom_type") or "").lower():
+            ops += _opening_symbol(f + 20, hi + 20, W - 2 * f - 40, H - f - hi - 40, "Откидное", "", outward)
+        ops.append(_dim((W, hi), (W, H), 350, 90, text=str(int(round(top)))))
+    if bottom:
+        ops.append(_line((f, lo), (W - f, lo), L_MULLION))
+        ops.append(_rect(f + 20, f + 20, W - 2 * f - 40, lo - f - 40, L_SASH))
+        ops.append(_dim((W, 0), (W, lo), 350, 90, text=str(int(round(bottom)))))
+    return lo, hi, ops
+
+
+def mirror_ops(ops: list[Op], W: float) -> list[Op]:
+    """Вид снаружи: зеркало по X относительно середины изделия шириной W."""
+    mx = lambda pt: (W - pt[0], pt[1])  # noqa: E731
+    out: list[Op] = []
+    for op in ops:
+        if op["op"] == "dim" and op.get("angle") == 90:
+            # вертикальные размеры стоят у краёв рамы и меряют высоты: от вида не зависят
+            out.append(op)
+            continue
+        o = dict(op)
+        for k in ("p1", "p2", "pos", "center"):
+            if k in o:
+                o[k] = mx(o[k])
+        if "points" in o:
+            o["points"] = [mx(pt) for pt in o["points"]]
+        out.append(o)
+    return out
+
+
 def build_window(p: dict[str, Any]) -> list[Op]:
     """Окно с несколькими створками.
 
     p = {width, height, profile(мм)=60, outward=False,
-         sashes=[{width, type, handle}]}  (type: Глухое/Поворотное/Поворотно-откидное)
+         sashes=[{width, type, handle}]}  (type: Глухое/Поворотное/Поворотно-откидное; handle: сторона ручки,
+         вместо неё можно hinge: сторона петель, вид изнутри),
+         transom_top, transom_type, bottom_part: горизонтальные импосты
     """
     W = float(p.get("width") or 0)
     H = float(p.get("height") or 0)
@@ -105,8 +149,11 @@ def build_window(p: dict[str, Any]) -> list[Op]:
     # рама (наружный + внутренний контур)
     ops.append(_rect(0, 0, W, H, L_FRAME))
     ops.append(_rect(f, f, W - 2 * f, H - 2 * f, L_FRAME))
+    lo, hi, tops = _transoms(p, W, H, f, outward)
+    ops += tops
 
-    ix, iy, iw, ih = f, f, W - 2 * f, H - 2 * f
+    # створки стоят между горизонтальными импостами
+    ix, iy, iw, ih = f, lo, W - 2 * f, hi - lo
 
     # ширины створок: если заданы все — по ним, иначе поровну
     widths = [float(s.get("width") or 0) for s in sashes]
@@ -121,7 +168,10 @@ def build_window(p: dict[str, Any]) -> list[Op]:
     for i, s in enumerate(sashes):
         cw = cws[i]
         typ = str(s.get("type") or "Поворотно-откидное")
-        handle = str(s.get("handle") or ("Правая" if i == 0 else "Левая"))
+        hinge = str(s.get("hinge") or "").lower()
+        # ручка напротив петель; без петель и ручки: по умолчанию как раньше
+        default = "Правая" if i == 0 else "Левая"
+        handle = str(s.get("handle") or (("Правая" if "лев" in hinge else "Левая") if hinge else default))
         # створка (рамка)
         ops.append(_rect(xcur + 20, iy + 20, cw - 40, ih - 40, L_SASH))
         # символ открывания
@@ -146,7 +196,8 @@ def build_window(p: dict[str, Any]) -> list[Op]:
 
 
 def build_door(p: dict[str, Any]) -> list[Op]:
-    """Дверь. p = {width,height,profile,outward, side(Левая/Правая), door_type}."""
+    """Дверь. p = {width,height,profile,outward, side (петли, вид изнутри: Слева/Справа), door_type,
+    transom_top, transom_type, bottom_part}."""
     W = float(p.get("width") or 0)
     H = float(p.get("height") or 0)
     if W <= 0 or H <= 0:
@@ -158,7 +209,9 @@ def build_door(p: dict[str, Any]) -> list[Op]:
     ops: list[Op] = []
     ops.append(_rect(0, 0, W, H, L_FRAME))
     ops.append(_rect(f, f, W - 2 * f, H - 2 * f, L_FRAME))
-    ix, iy, iw, ih = f, f, W - 2 * f, H - 2 * f
+    lo, hi, tops = _transoms(p, W, H, f, outward)
+    ops += tops
+    ix, iy, iw, ih = f, lo, W - 2 * f, hi - lo
 
     if "штульп" in dtype.lower():
         # двупольная: две створки, ручки к центру, штульп — пунктир по центру
@@ -278,6 +331,7 @@ def build_rectangle(p: dict[str, Any]) -> list[Op]:
         raise ValueError("width и height обязательны и > 0")
     f = float(p.get("profile") or 50)
     ops = [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
+    ops += _transoms(p, W, H, f, bool(p.get("outward")))[2]
     name = p.get("name")
     if name:
         th = min(H * 0.08, (W - 2 * f) * 0.85 / (len(str(name)) * 0.72))  # влезть в ширину
@@ -299,11 +353,20 @@ BUILDERS = {
 }
 
 
+def is_outside_view(params: dict[str, Any]) -> bool:
+    return str(params.get("view") or "").lower() in ("outside", "снаружи", "вид снаружи")
+
+
 def build(kind: str, params: dict[str, Any]) -> list[Op]:
+    """params.view = 'outside' / 'снаружи': вид с улицы. Геометрия строится в виде изнутри и отражается;
+    пунктиром всегда створка, открывающаяся от смотрящего (с улицы это открывание внутрь)."""
     builder = BUILDERS.get(kind)
     if not builder:
         raise ValueError(f"Неизвестный тип конструкции: {kind}. Доступно: {', '.join(BUILDERS)}")
-    return builder(params)
+    if not is_outside_view(params):
+        return builder(params)
+    p = {**params, "outward": not bool(params.get("outward"))}
+    return mirror_ops(builder(p), float(p.get("width") or p.get("length") or 0))
 
 
 def _shift_pt(p, dx: float, dy: float):
