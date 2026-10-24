@@ -233,7 +233,8 @@ def plan_order(items: list[dict[str, Any]], x0: float, y0: float, h: float,
     built = [C.build(it["kind"], it["params"]) for it in items]
     exts = [C.ops_extents(ops) for ops in built]
     max_h = max(e[3] - e[1] for e in exts)
-    gap = 600 + 5 * h  # место под вертикальный размер следующего изделия
+    # место под размеры справа (фрамуги, поля конструктора) и вертикальный размер следующего изделия
+    gap = 900 + 6 * h
     x = x0
     placed, labels = [], []
     for i, (ops, e) in enumerate(zip(built, exts)):
