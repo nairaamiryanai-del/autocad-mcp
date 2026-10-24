@@ -26,6 +26,12 @@ irm https://raw.githubusercontent.com/nairaamiryanai-del/autocad-mcp/main/instal
 
 После установки перезапустите AI-программу. Обновление: та же команда.
 
+Из скачанной папки проекта (без интернета к GitHub):
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iex (Get-Content -Raw -Encoding UTF8 .\install.ps1)"
+```
+
 ### Вручную (любая ОС)
 
 ```bash

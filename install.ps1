@@ -1,7 +1,7 @@
-﻿# Установка AutoCAD MCP на Windows одной командой (PowerShell):
+# Установка AutoCAD MCP на Windows одной командой (PowerShell):
 #   irm https://raw.githubusercontent.com/nairaamiryanai-del/autocad-mcp/main/install.ps1 | iex
-# или из скачанной папки проекта:
-#   powershell -ExecutionPolicy Bypass -File install.ps1
+# или из скачанной папки проекта (файл в UTF-8 без BOM, поэтому читаем его явно как UTF-8):
+#   powershell -ExecutionPolicy Bypass -Command "iex (Get-Content -Raw -Encoding UTF8 .\install.ps1)"
 #
 # Что делает: находит Python 3.10+, ставит сервер в %LOCALAPPDATA%\autocad-mcp (свой venv, систему не трогает),
 # проверяет установку и прописывает сервер в найденные программы: Claude Desktop, Claude Code, Cursor,
@@ -39,6 +39,9 @@ $pyArgs = $py.Extra
 # источник: папка проекта, если скрипт запущен из неё, иначе архив с GitHub
 $Source = $Archive
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) { $Source = $PSScriptRoot }
+elseif ((Test-Path ".\pyproject.toml") -and (Select-String -Path ".\pyproject.toml" -Pattern 'name = "autocad-mcp"' -Quiet)) {
+    $Source = (Get-Location).Path
+}
 
 Write-Host "1/4 Окружение Python в $Dir"
 New-Item -ItemType Directory -Force $Dir | Out-Null
