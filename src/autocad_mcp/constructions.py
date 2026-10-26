@@ -90,18 +90,27 @@ def _opening_symbol(x: float, y: float, w: float, h: float, typ: str,
     return ops
 
 
-def transom_symbol(transom_type: str) -> str:
-    """Глухая / Откидная внутрь (вокруг нижней оси) / Откидная наружу (вокруг верхней оси)."""
+TILT_BOTTOM = "Откидная, петли снизу"  # открывается внутрь, вокруг нижней оси
+TILT_TOP = "Откидная, петли сверху"  # открывается наружу, вокруг верхней оси
+
+
+def is_top_hinged(transom_type: str) -> bool:
+    """Откидная на верхних петлях (наружу)? Понимает и старые названия «Откидная наружу»."""
     t = str(transom_type or "").lower()
-    if "откид" not in t:
+    return "сверху" in t or "наруж" in t
+
+
+def transom_symbol(transom_type: str) -> str:
+    """Глухая / Откидная, петли снизу (внутрь) / Откидная, петли сверху (наружу)."""
+    if "откид" not in str(transom_type or "").lower():
         return "Глухое"
-    return "Подвесное" if "наруж" in t else "Откидное"
+    return "Подвесное" if is_top_hinged(transom_type) else "Откидное"
 
 
 def _transom_dashed(p: dict[str, Any]) -> bool:
     """Пунктир фрамуги по её собственному направлению: открывается от смотрящего.
     build() отражает вид снаружи после построения, поэтому здесь учитываем вид явно."""
-    return ("наруж" in str(p.get("transom_type") or "").lower()) != is_outside_view(p)
+    return is_top_hinged(str(p.get("transom_type") or "")) != is_outside_view(p)
 
 
 def _transoms(p: dict[str, Any], W: float, H: float, f: float, outward: bool) -> tuple[float, float, list[Op]]:
@@ -311,7 +320,7 @@ def build_sliding(p: dict[str, Any]) -> list[Op]:
 def build_balcony(p: dict[str, Any]) -> list[Op]:
     """Балконный блок: дверь слева + окно (откидная фрамуга сверху, глухое снизу).
     p = {width,height,door_width,door_side(петли, вид изнутри),outward,profile,
-         transom_top (фрамуга окна, мм до оси импоста), transom_type (Откидная внутрь/наружу, Глухая)}."""
+         transom_top (фрамуга окна, мм до оси импоста), transom_type (Откидная, петли снизу/сверху; Глухая)}."""
     W = float(p.get("width") or 0)
     H = float(p.get("height") or 0)
     if W <= 0 or H <= 0:
@@ -336,7 +345,7 @@ def build_balcony(p: dict[str, Any]) -> list[Op]:
     if top and not 100 < top < H - 300:
         raise ValueError("Фрамуга балконного блока не помещается по высоте")
     ty = H - top if top else iy + ih * 0.68
-    ttype = str(p.get("transom_type") or "Откидная внутрь")
+    ttype = str(p.get("transom_type") or TILT_BOTTOM)
     ops.append(_line((wx, ty), (wx + ww, ty), L_MULLION))
     ops.append(_rect(wx + 20, ty + 20, ww - 40, iy + ih - ty - 40, L_SASH))
     sym = transom_symbol(ttype)
@@ -377,8 +386,8 @@ def build_rectangle(p: dict[str, Any]) -> list[Op]:
 
 _FILL_TYPE = {"turn": "Поворотное", "door": "Поворотное", "tiltturn": "Поворотно-откидное",
               "tilt": "Откидное", "tophung": "Подвесное"}
-_FILL_SHORT = {"glass": "глух.", "panel": "панель", "turn": "пов.", "tiltturn": "П/О", "tilt": "отк.",
-               "tophung": "отк. наружу", "door": "дверь", "slide": "разд."}
+_FILL_SHORT = {"glass": "глух.", "panel": "панель", "turn": "пов.", "tiltturn": "П/О", "tilt": "отк. п.низ",
+               "tophung": "отк. п.верх", "door": "дверь", "slide": "разд."}
 
 
 def _fit_sizes(sizes: list[float], total: float) -> list[float]:

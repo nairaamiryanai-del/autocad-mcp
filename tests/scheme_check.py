@@ -60,6 +60,10 @@ check("фрамуга наружу: пунктир при виде изнутр�
 out_out = C.build("window", O.kzamer_item("window", {**base, "transomType": "Откидная наружу", "view": "Снаружи"})["params"])
 tr_out = [o for o in out_out if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900]
 check("фрамуга наружу: сплошная при виде снаружи", bool(tr_out) and not any(o.get("dashed") for o in tr_out))
+# новые названия по петлям: «петли сверху» = старое «наружу», «петли снизу» = «внутрь»
+top_new = C.build("window", O.kzamer_item("window", {**base, "transomType": C.TILT_TOP})["params"])
+check("«петли сверху» рисуется как наружу", [o for o in top_new if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900] == tr_lines)
+check("символы по петлям", [C.transom_symbol(t) for t in ("Глухая", C.TILT_BOTTOM, C.TILT_TOP)] == ["Глухое", "Откидное", "Подвесное"])
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
                                 "transomTop": 600, "transomType": "Глухая"})
 bops = C.build("balcony", bal["params"])
@@ -77,7 +81,7 @@ mull = [o for o in fops if o["op"] == "line" and o["layer"] == C.L_MULLION]
 check("конструктор: импосты на 1500 (гориз.) и x=1100", any(o["p1"][1] == o["p2"][1] == 1500 for o in mull) and any(o["p1"][0] == o["p2"][0] == 1100 for o in mull))
 turn = [o for o in fops if o["op"] == "line" and o["layer"] == C.L_OPEN and abs(o["p1"][1] - 780) < 1]  # середина створки: рама 60 + отступ 20
 check("конструктор: вершина П/О у ручки справа", bool(turn) and all(o["p1"][0] > 1000 for o in turn), f"{[o['p1'] for o in turn]}")
-check("конструктор: спецификация", O.describe("frame", cons["params"]) == "3 пол.: отк., П/О п.лев., глух.", O.describe("frame", cons["params"]))
+check("конструктор: спецификация", O.describe("frame", cons["params"]) == "3 пол.: отк. п.низ, П/О п.лев., глух.", O.describe("frame", cons["params"]))
 cons_out = O.kzamer_item("construct", {"width": 1800, "height": 2000, "frame": json.dumps(frame), "view": "Снаружи"})
 turn_o = [o for o in C.build("frame", cons_out["params"]) if o["op"] == "line" and o["layer"] == C.L_OPEN and abs(o["p1"][1] - 780) < 1]  # середина створки: рама 60 + отступ 20
 check("конструктор, вид снаружи: зеркало и пунктир", bool(turn_o) and all(o["p1"][0] < 800 and o.get("dashed") for o in turn_o))
