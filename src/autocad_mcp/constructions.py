@@ -387,7 +387,9 @@ def build_rectangle(p: dict[str, Any]) -> list[Op]:
 _FILL_TYPE = {"turn": "Поворотное", "door": "Поворотное", "tiltturn": "Поворотно-откидное",
               "tilt": "Откидное", "tophung": "Подвесное"}
 _FILL_SHORT = {"glass": "глух.", "panel": "панель", "turn": "пов.", "tiltturn": "П/О", "tilt": "отк. п.низ",
-               "tophung": "отк. п.верх", "door": "дверь", "slide": "разд."}
+               "tophung": "отк. п.верх", "door": "дверь", "slide": "разд.", "wall": "стена"}
+# split.sash = тип створки: деление внутри одной створки (импост в створке), части глухие или панель;
+# fill.t = "wall": стена, изделия нет (под окном балконного блока), рама обходит её контуром.
 
 
 def _fit_sizes(sizes: list[float], total: float) -> list[float]:
@@ -401,43 +403,141 @@ def _fit_sizes(sizes: list[float], total: float) -> list[float]:
     return out
 
 
-def frame_layout(node: dict[str, Any], W: float, H: float) -> tuple[list[dict], list[dict], list[dict]]:
-    """Куски, импосты и деления схемы; координаты в мм, y от ВЕРХА рамы (как в приложении)."""
-    leaves: list[dict] = []
-    imposts: list[dict] = []
-    dims: list[dict] = []
+def _layout(node: dict[str, Any], W: float, H: float) -> dict[str, list[dict]]:
+    """Куски, створки с импостом в створке, импосты и деления; мм, y от ВЕРХА рамы (как в приложении).
+    Кусок внутри такой створки имеет "sash": номер в списке sashes; импост внутри неё "bar": True."""
+    out: dict[str, list[dict]] = {"leaves": [], "sashes": [], "imposts": [], "dims": []}
 
-    def walk(n: dict, x: float, y: float, w: float, h: float, depth: int) -> None:
+    def walk(n: dict, x: float, y: float, w: float, h: float, depth: int, sash: int | None) -> None:
         s = n.get("split")
         if not s:
-            leaves.append({"x": x, "y": y, "w": w, "h": h, "fill": n.get("fill") or {"t": "glass"}})
+            leaf = {"x": x, "y": y, "w": w, "h": h, "fill": n.get("fill") or {"t": "glass"}}
+            if sash is not None:
+                leaf["sash"] = sash
+            out["leaves"].append(leaf)
             return
+        if s.get("sash") and sash is None:
+            out["sashes"].append({"x": x, "y": y, "w": w, "h": h, "fill": s["sash"]})
+            sash = len(out["sashes"]) - 1
         v = s["dir"] == "v"
         sizes = _fit_sizes(s["sizes"], w if v else h)
-        dims.append({"dir": s["dir"], "depth": depth, "start": x if v else y, "sizes": sizes, "box": (x, y, w, h)})
+        out["dims"].append({"dir": s["dir"], "depth": depth, "start": x if v else y, "sizes": sizes, "box": (x, y, w, h)})
         cur = x if v else y
         for i, sz in enumerate(sizes):
             if i:
-                imposts.append({"p1": (cur, y), "p2": (cur, y + h)} if v else {"p1": (x, cur), "p2": (x + w, cur)})
-                imposts[-1]["shtulp"] = bool(s.get("shtulp"))
-            walk(s["parts"][i], cur, y, sz, h, depth + 1) if v else walk(s["parts"][i], x, cur, w, sz, depth + 1)
+                im = {"p1": (cur, y), "p2": (cur, y + h)} if v else {"p1": (x, cur), "p2": (x + w, cur)}
+                im["shtulp"] = bool(s.get("shtulp"))
+                im["bar"] = sash is not None
+                out["imposts"].append(im)
+            if v:
+                walk(s["parts"][i], cur, y, sz, h, depth + 1, sash)
+            else:
+                walk(s["parts"][i], x, cur, w, sz, depth + 1, sash)
             cur += sz
 
-    walk(node, 0.0, 0.0, W, H, 0)
-    return leaves, imposts, dims
+    walk(node, 0.0, 0.0, W, H, 0, None)
+    return out
+
+
+def frame_layout(node: dict[str, Any], W: float, H: float) -> tuple[list[dict], list[dict], list[dict]]:
+    """Куски, импосты и деления схемы; координаты в мм, y от ВЕРХА рамы (как в приложении)."""
+    L = _layout(node, W, H)
+    return L["leaves"], L["imposts"], L["dims"]
+
+
+def frame_fields(node: dict[str, Any], W: float, H: float) -> list[dict]:
+    """Поля в порядке чтения: створка с импостом в створке одним полем (с ключом parts)."""
+    L = _layout(node, W, H)
+    fields = [l for l in L["leaves"] if "sash" not in l]
+    for i, s in enumerate(L["sashes"]):
+        fields.append({**s, "parts": [l for l in L["leaves"] if l.get("sash") == i]})
+    return sorted(fields, key=lambda l: (round(l["y"]), l["x"]))
+
+
+def frame_area(node: dict[str, Any], W: float, H: float) -> float:
+    """Площадь изделия без стен, м²."""
+    return sum(l["w"] * l["h"] for l in _layout(node, W, H)["leaves"] if l["fill"].get("t") != "wall") / 1e6
+
+
+def frame_outline(node: dict[str, Any], W: float, H: float) -> list[tuple[float, float, float, float]]:
+    """Отрезки внешнего контура рамы (мм, y от верха): внешний край, кроме участков у стены, и края стены
+    со стороны изделия. Без стен это прямоугольник W × H."""
+    leaves = _layout(node, W, H)["leaves"]
+    walls = [l for l in leaves if l["fill"].get("t") == "wall"]
+
+    def near(a: float, b: float) -> bool:
+        return abs(a - b) < 0.5
+
+    out: list[tuple[float, float, float, float]] = []
+    for l in leaves:
+        if l["fill"].get("t") == "wall":
+            continue
+        x, y, w, h = l["x"], l["y"], l["w"], l["h"]
+        for x1, y1, x2, y2, d in ((x, y, x + w, y, "h"), (x, y + h, x + w, y + h, "h"), (x, y, x, y + h, "v"), (x + w, y, x + w, y + h, "v")):
+            if (d == "h" and (near(y1, 0) or near(y1, H))) or (d == "v" and (near(x1, 0) or near(x1, W))):
+                out.append((x1, y1, x2, y2))
+                continue
+            for wl in walls:
+                if d == "h" and (near(wl["y"], y1) or near(wl["y"] + wl["h"], y1)):
+                    a, b = max(x1, wl["x"]), min(x2, wl["x"] + wl["w"])
+                    if b - a > 0.5:
+                        out.append((a, y1, b, y1))
+                if d == "v" and (near(wl["x"], x1) or near(wl["x"] + wl["w"], x1)):
+                    a, b = max(y1, wl["y"]), min(y2, wl["y"] + wl["h"])
+                    if b - a > 0.5:
+                        out.append((x1, a, x1, b))
+    return out
 
 
 def frame_short(node: dict[str, Any], W: float, H: float) -> str:
-    leaves, _, _ = frame_layout(node, W, H)
-    leaves.sort(key=lambda l: (round(l["y"]), l["x"]))
+    fields = frame_fields(node, W, H)
     parts = []
-    for l in leaves:
+    for l in fields:
         f = l["fill"]
         s = _FILL_SHORT.get(f.get("t"), "?")
         if f.get("hinge"):
             s += " п.прав." if f["hinge"] == "right" else " п.лев."
+        if l.get("parts"):
+            s += " с имп."
         parts.append(s)
-    return f"{len(leaves)} пол.: " + ", ".join(parts)
+    return f"{len(fields)} пол.: " + ", ".join(parts)
+
+
+def _frame_with_walls(node: dict[str, Any], W: float, H: float, f: float) -> list[Op]:
+    """Рама со стеной: внешний контур и внутренний на f внутрь изделия; углы по пересечению смещённых соседей."""
+    segs = frame_outline(node, W, H)
+    solid = [l for l in _layout(node, W, H)["leaves"] if l["fill"].get("t") != "wall"]
+
+    def near(a: float, b: float) -> bool:
+        return abs(a - b) < 0.5
+
+    def inside(px: float, py: float) -> bool:
+        return any(l["x"] < px < l["x"] + l["w"] and l["y"] < py < l["y"] + l["h"] for l in solid)
+
+    def shift(sg: tuple[float, float, float, float]) -> float:
+        x1, y1, x2, y2 = sg
+        if y1 == y2:
+            return y1 + f if inside((x1 + x2) / 2, y1 + 1) else y1 - f
+        return x1 + f if inside(x1 + 1, (y1 + y2) / 2) else x1 - f
+
+    ops: list[Op] = []
+    for sg in segs:
+        x1, y1, x2, y2 = sg
+        horiz = y1 == y2
+
+        def end(px: float, py: float, fallback: float) -> float:
+            for s in segs:
+                if s is not sg and (s[1] == s[3]) != horiz and ((near(s[0], px) and near(s[1], py)) or (near(s[2], px) and near(s[3], py))):
+                    return shift(s)
+            return fallback
+
+        o = shift(sg)
+        ops.append(_line((x1, H - y1), (x2, H - y2), L_FRAME))
+        if horiz:
+            ops.append(_line((end(x1, y1, x1), H - o), (end(x2, y2, x2), H - o), L_FRAME))
+        else:
+            ops.append(_line((o, H - end(x1, y1, y1)), (o, H - end(x2, y2, y2)), L_FRAME))
+    return ops
 
 
 def build_frame(p: dict[str, Any]) -> list[Op]:
@@ -457,13 +557,37 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
     outside = is_outside_view(p)
     # build() для вида снаружи переворачивает outward; здесь нужно реальное направление
     item_out = bool(p.get("outward")) != outside
-    ops: list[Op] = [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
-    leaves, imposts, dims = frame_layout(node, W, H)
+    L = _layout(node, W, H)
+    leaves, imposts, dims = L["leaves"], L["imposts"], L["dims"]
+    has_wall = any(l["fill"].get("t") == "wall" for l in leaves)
+    ops: list[Op] = _frame_with_walls(node, W, H, f) if has_wall else [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
     cx = lambda x: max(f, min(W - f, x))  # noqa: E731
     cy = lambda y: max(f, min(H - f, y))  # noqa: E731
     for im in imposts:
         (x1, y1), (x2, y2) = im["p1"], im["p2"]
-        ops.append(_line((cx(x1), H - cy(y1)), (cx(x2), H - cy(y2)), L_SASH if im["shtulp"] else L_MULLION, im["shtulp"]))
+        ops.append(_line((cx(x1), H - cy(y1)), (cx(x2), H - cy(y2)), L_SASH if im["shtulp"] or im["bar"] else L_MULLION, im["shtulp"]))
+
+    def sash_symbol(x1: float, x2: float, y1: float, y2: float, fill: dict) -> None:
+        """Символ открывания, ручка и подпись двери на всю створку (вид изнутри)."""
+        t = fill.get("t")
+        sx, sy, sw, sh = x1 + 20, H - y2 + 20, x2 - x1 - 40, y2 - y1 - 40
+        dashed = item_out != outside  # все открывающиеся по направлению изделия, петли задают только ось
+        hinge = fill.get("hinge") or "left"
+        handle = "Левая" if hinge == "right" else "Правая"
+        nonlocal ops
+        ops += _opening_symbol(sx, sy, sw, sh, _FILL_TYPE[t], handle, dashed)
+        if t in ("turn", "tiltturn", "door"):
+            hx = (x2 - 45) if handle == "Правая" else (x1 + 45)
+            ops += _handle(hx, sy + sh / 2)
+        if t == "door":
+            ops.append(_text((sx + sw / 2, sy + min(sh, sw) * 0.12), "дверь", min(sw, sh) * 0.08, L_TEXT))
+
+    # створки с импостом в створке: контур и символ на всю створку, части рисуются ниже как глухие/панели
+    for s in L["sashes"]:
+        x1, x2, y1, y2 = cx(s["x"]), cx(s["x"] + s["w"]), cy(s["y"]), cy(s["y"] + s["h"])
+        if x2 - x1 > 40 and y2 - y1 > 40:
+            ops.append(_rect(x1 + 20, H - y2 + 20, x2 - x1 - 40, y2 - y1 - 40, L_SASH))
+            sash_symbol(x1, x2, y1, y2, s["fill"])
     for l in leaves:
         x1, x2 = cx(l["x"]), cx(l["x"] + l["w"])
         y1, y2 = cy(l["y"]), cy(l["y"] + l["h"])
@@ -472,7 +596,12 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
             continue
         fill = l["fill"]
         t = fill.get("t", "glass")
+        if t == "wall":
+            ops.append(_text((sx + sw / 2, sy + sh / 2), "стена", min(sw, sh) * 0.1, L_TEXT))
+            continue
         ops.append(_rect(sx, sy, sw, sh, L_SASH))
+        if t == "glass" and "sash" in l:
+            continue  # стекло внутри открывающейся створки не «глухое»
         if t in ("glass", "panel"):
             ops.append(_text((sx + sw / 2, sy + sh / 2), "глухое" if t == "glass" else "панель", min(sw, sh) * 0.1, L_TEXT))
             continue
@@ -484,16 +613,7 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
             if fill.get("dir") == "both":  # в обе стороны: второй наконечник без повтора линии
                 ops += _arrow(to_x, fr_x, y, a)[1:]
             continue
-        out = item_out  # все открывающиеся по направлению изделия, петли задают только ось
-        dashed = out != outside
-        hinge = fill.get("hinge") or "left"
-        handle = "Левая" if hinge == "right" else "Правая"
-        ops += _opening_symbol(sx, sy, sw, sh, _FILL_TYPE[t], handle, dashed)
-        if t in ("turn", "tiltturn", "door"):
-            hx = (x2 - 45) if handle == "Правая" else (x1 + 45)
-            ops += _handle(hx, sy + sh / 2)
-        if t == "door":
-            ops.append(_text((sx + sw / 2, sy + min(sh, sw) * 0.12), "дверь", min(sw, sh) * 0.08, L_TEXT))
+        sash_symbol(x1, x2, y1, y2, fill)
     # размеры кусков с той стороны, к которой прилегает деление
     def near(a: float, b: float) -> bool:
         return abs(a - b) < 0.5

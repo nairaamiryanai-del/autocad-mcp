@@ -217,11 +217,20 @@ def order_title(customer: dict[str, Any] | None) -> str:
     return f"Спецификация: {who}" if who else "Спецификация"
 
 
+def _area(it: dict[str, Any]) -> float:
+    """Площадь одного изделия, м²: у изделия из конструктора без стен (под окном балконного блока)."""
+    p = it["params"]
+    w, h = _num(p.get("width") or p.get("length")), _num(p.get("height"))
+    frame = p.get("frame")
+    if it["kind"] == "frame" and frame and w > 0 and h > 0:
+        return C.frame_area(json.loads(frame) if isinstance(frame, str) else frame, w, h)
+    return w * h / 1e6
+
+
 def spec_row(pos: int, it: dict[str, Any]) -> list[str]:
     p = it["params"]
     w, h = _num(p.get("width") or p.get("length")), _num(p.get("height"))
-    area = w * h / 1e6
-    return [str(pos), str(it["name"]), f"{w:.0f}×{h:.0f}", f"{area:.2f}", describe(it["kind"], p), str(it["qty"])]
+    return [str(pos), str(it["name"]), f"{w:.0f}×{h:.0f}", f"{_area(it):.2f}", describe(it["kind"], p), str(it["qty"])]
 
 
 def plan_order(items: list[dict[str, Any]], x0: float, y0: float, h: float,
@@ -254,6 +263,5 @@ def plan_order(items: list[dict[str, Any]], x0: float, y0: float, h: float,
 
 def spec_total(items: list[dict[str, Any]]) -> list[str]:
     qty = sum(it["qty"] for it in items)
-    area = sum(_num(it["params"].get("width") or it["params"].get("length")) * _num(it["params"].get("height"))
-               * it["qty"] for it in items) / 1e6
+    area = sum(_area(it) * it["qty"] for it in items)
     return ["", "Итого", "", f"{area:.2f}", "", str(qty)]

@@ -73,6 +73,22 @@ def slide_heads(d):
     return sum(1 for o in C.build(item["kind"], item["params"]) if o["op"] == "line" and o["layer"] == C.L_OPEN)
 
 
+# импост в створке: одна дверь (один символ, одна ручка), перемычка в слое створки
+door_bar = {"split": {"dir": "h", "sizes": [1050, 1050], "parts": [{"fill": {"t": "glass"}}, {"fill": {"t": "panel"}}], "sash": {"t": "door", "hinge": "left"}}}
+db_item = O.kzamer_item("construct", {"width": 900, "height": 2100, "frame": json.dumps(door_bar)})
+db_ops = C.build(db_item["kind"], db_item["params"])
+check("импост в створке: один символ двери", sum(1 for o in db_ops if o["op"] == "line" and o["layer"] == C.L_OPEN) == 2)
+check("импост в створке: перемычка в слое створки", any(o["op"] == "line" and o["layer"] == C.L_SASH and abs(o["p1"][1] - 1050) < 1 for o in db_ops))
+check("импост в створке: спецификация одним полем", C.frame_short(door_bar, 900, 2100) == "1 пол.: дверь п.лев. с имп.", C.frame_short(door_bar, 900, 2100))
+# стена под окном балконного блока: рама обходит стену, площадь без стены
+bb = {"split": {"dir": "v", "sizes": [700, 1400], "parts": [
+    {"split": {"dir": "h", "sizes": [1450, 700], "parts": [{"fill": {"t": "glass"}}, {"fill": {"t": "panel"}}], "sash": {"t": "tiltturn", "hinge": "left"}}},
+    {"split": {"dir": "h", "sizes": [1450, 700], "parts": [{"fill": {"t": "tiltturn", "hinge": "left"}}, {"fill": {"t": "wall"}}]}}]}}
+bb_item = O.kzamer_item("construct", {"width": 2100, "height": 2150, "frame": json.dumps(bb)})
+bb_ops = C.build(bb_item["kind"], bb_item["params"])
+floor = [o for o in bb_ops if o["op"] == "line" and o["layer"] == C.L_FRAME and abs(o["p1"][1]) < 1 and abs(o["p2"][1]) < 1]
+check("балконный блок: по полу рама только у двери", bool(floor) and all(max(o["p1"][0], o["p2"][0]) <= 700.5 for o in floor), f"{[(o['p1'], o['p2']) for o in floor]}")
+check("балконный блок: площадь без стены", abs(O._area(bb_item) - (2100 * 2150 - 1400 * 700) / 1e6) < 1e-6, f"{O._area(bb_item)}")
 check("раздвижная в обе стороны: два наконечника", [slide_heads("left"), slide_heads("both")] == [3, 5], f"{[slide_heads('left'), slide_heads('both')]}")
 check("конструктор: петли сверху при изделии внутрь сплошные", not any(o.get("dashed") for o in top_ops if o["op"] == "line" and o["layer"] == C.L_OPEN))
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
