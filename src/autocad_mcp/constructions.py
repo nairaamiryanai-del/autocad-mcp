@@ -481,6 +481,8 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
             y = sy + sh / 2
             fr_x, to_x = (sx + sw * 0.25, sx + sw * 0.75) if fill.get("dir") == "right" else (sx + sw * 0.75, sx + sw * 0.25)
             ops += _arrow(fr_x, to_x, y, a)
+            if fill.get("dir") == "both":  # в обе стороны: второй наконечник без повтора линии
+                ops += _arrow(to_x, fr_x, y, a)[1:]
             continue
         out = item_out  # все открывающиеся по направлению изделия, петли задают только ось
         dashed = out != outside

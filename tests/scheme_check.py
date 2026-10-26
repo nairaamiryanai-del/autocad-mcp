@@ -68,6 +68,12 @@ check("символы по петлям", [C.transom_symbol(t) for t in ("Глу
 fr_top = {"split": {"dir": "h", "sizes": [500, 1500], "parts": [{"fill": {"t": "tophung"}}, {"fill": {"t": "glass"}}]}}
 top_item = O.kzamer_item("construct", {"width": 1800, "height": 2000, "frame": json.dumps(fr_top)})
 top_ops = C.build(top_item["kind"], top_item["params"])
+def slide_heads(d):
+    item = O.kzamer_item("construct", {"width": 1200, "height": 1500, "frame": json.dumps({"fill": {"t": "slide", "dir": d}})})
+    return sum(1 for o in C.build(item["kind"], item["params"]) if o["op"] == "line" and o["layer"] == C.L_OPEN)
+
+
+check("раздвижная в обе стороны: два наконечника", [slide_heads("left"), slide_heads("both")] == [3, 5], f"{[slide_heads('left'), slide_heads('both')]}")
 check("конструктор: петли сверху при изделии внутрь сплошные", not any(o.get("dashed") for o in top_ops if o["op"] == "line" and o["layer"] == C.L_OPEN))
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
                                 "transomTop": 600, "transomType": "Глухая"})
