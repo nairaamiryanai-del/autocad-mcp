@@ -52,18 +52,23 @@ door = O.kzamer_item("door", {"width": 1000, "height": 2700, "side": "Справ
 check("дверь: петли справа", "петли прав." in O.describe("door", door["params"]))
 C.build("door", door["params"])
 
-# фрамуга наружу (вокруг верхней оси): вершина снизу, пунктир изнутри и сплошная снаружи
-out_in = C.build("window", O.kzamer_item("window", {**base, "transomType": "Откидная наружу"})["params"])
-tr_lines = [o for o in out_in if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900]
-check("фрамуга наружу: вершина снизу", bool(tr_lines) and all(abs(o["p1"][1] - 1920) < 1 for o in tr_lines), f"{[o['p1'] for o in tr_lines]}")
-check("фрамуга наружу: пунктир при виде изнутри", all(o.get("dashed") for o in tr_lines))
-out_out = C.build("window", O.kzamer_item("window", {**base, "transomType": "Откидная наружу", "view": "Снаружи"})["params"])
-tr_out = [o for o in out_out if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900]
-check("фрамуга наружу: сплошная при виде снаружи", bool(tr_out) and not any(o.get("dashed") for o in tr_out))
-# новые названия по петлям: «петли сверху» = старое «наружу», «петли снизу» = «внутрь»
-top_new = C.build("window", O.kzamer_item("window", {**base, "transomType": C.TILT_TOP})["params"])
-check("«петли сверху» рисуется как наружу", [o for o in top_new if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900] == tr_lines)
+# фрамуга на верхних петлях: вершина снизу; петли задают только ось, внутрь/наружу по направлению изделия
+def tr_of(values):
+    ops = C.build("window", O.kzamer_item("window", {**base, **values})["params"])
+    return [o for o in ops if o["op"] == "line" and o["layer"] == C.L_OPEN and o["p1"][1] > 1900]
+
+
+tr_lines = tr_of({"transomType": C.TILT_TOP})
+check("петли сверху: вершина снизу", bool(tr_lines) and all(abs(o["p1"][1] - 1920) < 1 for o in tr_lines), f"{[o['p1'] for o in tr_lines]}")
+check("петли сверху, изделие внутрь: сплошная изнутри", not any(o.get("dashed") for o in tr_lines))
+check("петли сверху, изделие внутрь: пунктир снаружи", all(o.get("dashed") for o in tr_of({"transomType": C.TILT_TOP, "view": "Снаружи"})))
+check("петли сверху, изделие наружу: пунктир изнутри", all(o.get("dashed") for o in tr_of({"transomType": C.TILT_TOP, "direction": "Наружу"})))
+check("старое «Откидная наружу» = петли сверху", tr_of({"transomType": "Откидная наружу"}) == tr_lines)
 check("символы по петлям", [C.transom_symbol(t) for t in ("Глухая", C.TILT_BOTTOM, C.TILT_TOP)] == ["Глухое", "Откидное", "Подвесное"])
+fr_top = {"split": {"dir": "h", "sizes": [500, 1500], "parts": [{"fill": {"t": "tophung"}}, {"fill": {"t": "glass"}}]}}
+top_item = O.kzamer_item("construct", {"width": 1800, "height": 2000, "frame": json.dumps(fr_top)})
+top_ops = C.build(top_item["kind"], top_item["params"])
+check("конструктор: петли сверху при изделии внутрь сплошные", not any(o.get("dashed") for o in top_ops if o["op"] == "line" and o["layer"] == C.L_OPEN))
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
                                 "transomTop": 600, "transomType": "Глухая"})
 bops = C.build("balcony", bal["params"])

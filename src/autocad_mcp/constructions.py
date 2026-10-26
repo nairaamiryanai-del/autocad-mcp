@@ -108,9 +108,9 @@ def transom_symbol(transom_type: str) -> str:
 
 
 def _transom_dashed(p: dict[str, Any]) -> bool:
-    """Пунктир фрамуги по её собственному направлению: открывается от смотрящего.
-    build() отражает вид снаружи после построения, поэтому здесь учитываем вид явно."""
-    return is_top_hinged(str(p.get("transom_type") or "")) != is_outside_view(p)
+    """Пунктир фрамуги как у створок: по направлению изделия (петли снизу или сверху задают только ось).
+    build() для вида снаружи уже перевернул outward, поэтому это и есть «открывается от смотрящего»."""
+    return bool(p.get("outward"))
 
 
 def _transoms(p: dict[str, Any], W: float, H: float, f: float, outward: bool) -> tuple[float, float, list[Op]]:
@@ -482,7 +482,7 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
             fr_x, to_x = (sx + sw * 0.25, sx + sw * 0.75) if fill.get("dir") == "right" else (sx + sw * 0.75, sx + sw * 0.25)
             ops += _arrow(fr_x, to_x, y, a)
             continue
-        out = t == "tophung" or (t in ("turn", "tiltturn", "door") and item_out)
+        out = item_out  # все открывающиеся по направлению изделия, петли задают только ось
         dashed = out != outside
         hinge = fill.get("hinge") or "left"
         handle = "Левая" if hinge == "right" else "Правая"
