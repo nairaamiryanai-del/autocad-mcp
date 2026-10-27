@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import math
+
 from typing import Any
 
 # слои
@@ -454,9 +456,45 @@ def frame_fields(node: dict[str, Any], W: float, H: float) -> list[dict]:
     return sorted(fields, key=lambda l: (round(l["y"]), l["x"]))
 
 
+def arch_rise(node: dict[str, Any], W: float) -> float:
+    """Подъём арки, мм: node["arch"] у корня схемы, доля ширины (0.5 = полукруг); 0 без арки."""
+    return round(float(node.get("arch") or 0) * W)
+
+
+def _arch_radius(W: float, rise: float) -> float:
+    return (W * W / 4 + rise * rise) / (2 * rise)
+
+
+def arch_y(node: dict[str, Any], W: float, x: float) -> float:
+    """y дуги от верха рамы в точке x; 0 без арки."""
+    rise = arch_rise(node, W)
+    if not rise:
+        return 0.0
+    R = _arch_radius(W, rise)
+    dx = min(W / 2, abs(x - W / 2))
+    return R - math.sqrt(max(0.0, R * R - dx * dx))
+
+
+def arch_points(W: float, rise: float, offset: float = 0.0, n: int = 64) -> list[tuple[float, float]]:
+    """Точки дуги слева направо (мм, y от верха); offset: внутренний контур рамы от x=offset до W−offset."""
+    R = _arch_radius(W, rise)
+    r, half = R - offset, W / 2 - offset
+    pts = []
+    for i in range(n + 1):
+        x = W / 2 - half * math.cos(math.pi * i / n)
+        pts.append((x, R - math.sqrt(max(0.0, r * r - (x - W / 2) ** 2))))
+    return pts
+
+
 def frame_area(node: dict[str, Any], W: float, H: float) -> float:
-    """Площадь изделия без стен, м²."""
-    return sum(l["w"] * l["h"] for l in _layout(node, W, H)["leaves"] if l["fill"].get("t") != "wall") / 1e6
+    """Площадь изделия без стен и без «уголков» над аркой, м²."""
+    solid = sum(l["w"] * l["h"] for l in _layout(node, W, H)["leaves"] if l["fill"].get("t") != "wall")
+    rise = arch_rise(node, W)
+    if rise:
+        R = _arch_radius(W, rise)
+        seg = R * R * math.acos((R - rise) / R) - (R - rise) * math.sqrt(2 * R * rise - rise * rise)
+        solid -= W * rise - seg
+    return solid / 1e6
 
 
 def frame_outline(node: dict[str, Any], W: float, H: float) -> list[tuple[float, float, float, float]]:
@@ -502,7 +540,8 @@ def frame_short(node: dict[str, Any], W: float, H: float) -> str:
         if l.get("parts"):
             s += " с имп."
         parts.append(s)
-    return f"{len(fields)} пол.: " + ", ".join(parts)
+    rise = arch_rise(node, W)
+    return (f"арка {rise:.0f}, " if rise else "") + f"{len(fields)} пол.: " + ", ".join(parts)
 
 
 def _frame_with_walls(node: dict[str, Any], W: float, H: float, f: float) -> list[Op]:
@@ -562,12 +601,24 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
     L = _layout(node, W, H)
     leaves, imposts, dims = L["leaves"], L["imposts"], L["dims"]
     has_wall = any(l["fill"].get("t") == "wall" for l in leaves)
-    ops: list[Op] = _frame_with_walls(node, W, H, f) if has_wall else [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
+    rise = arch_rise(node, W)
+    if rise:
+        # арка: верх рамы дугой (ломаная), внутренний контур на f ниже, стороны от концов дуг
+        outer, inner = arch_points(W, rise), arch_points(W, rise, f)
+        ops = [_line((a[0], H - a[1]), (b[0], H - b[1]), L_FRAME) for a, b in zip(outer, outer[1:])]
+        ops += [_line((a[0], H - a[1]), (b[0], H - b[1]), L_FRAME) for a, b in zip(inner, inner[1:])]
+        yi = inner[0][1]
+        ops += [_line((0, H - rise), (0, 0), L_FRAME), _line((0, 0), (W, 0), L_FRAME), _line((W, 0), (W, H - rise), L_FRAME),
+                _line((f, H - yi), (f, f), L_FRAME), _line((f, f), (W - f, f), L_FRAME), _line((W - f, f), (W - f, H - yi), L_FRAME)]
+    else:
+        ops = _frame_with_walls(node, W, H, f) if has_wall else [_rect(0, 0, W, H, L_FRAME), _rect(f, f, W - 2 * f, H - 2 * f, L_FRAME)]
     cx = lambda x: max(f, min(W - f, x))  # noqa: E731
     cy = lambda y: max(f, min(H - f, y))  # noqa: E731
+    top_at = lambda x: max(f, arch_y(node, W, x) + f * 1.05) if rise else f  # noqa: E731
     for im in imposts:
         (x1, y1), (x2, y2) = im["p1"], im["p2"]
-        ops.append(_line((cx(x1), H - cy(y1)), (cx(x2), H - cy(y2)), L_SASH if im["shtulp"] or im["bar"] else L_MULLION, im["shtulp"]))
+        y1c = max(cy(y1), top_at(x1)) if x1 == x2 else cy(y1)  # вертикальный импост под аркой от дуги
+        ops.append(_line((cx(x1), H - y1c), (cx(x2), H - cy(y2)), L_SASH if im["shtulp"] or im["bar"] else L_MULLION, im["shtulp"]))
 
     def sash_symbol(x1: float, x2: float, y1: float, y2: float, fill: dict) -> None:
         """Символ открывания, ручка и подпись двери на всю створку (вид изнутри)."""
@@ -602,6 +653,14 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
         t = fill.get("t", "glass")
         if t == "wall":
             ops.append(_text((sx + sw / 2, sy + sh / 2), "стена", min(sw, sh) * 0.1, L_TEXT))
+            continue
+        if rise and l["y"] < 0.5 and t == "glass" and "sash" not in l:
+            # глухое под аркой: штапик по дуге
+            pts = [(x1 + 20 + (x2 - x1 - 40) * i / 24, H - min(y2 - 40, top_at(x1 + 20 + (x2 - x1 - 40) * i / 24) + 20)) for i in range(25)]
+            pts = [(x1 + 20, H - y2 + 20), *pts, (x2 - 20, H - y2 + 20), (x1 + 20, H - y2 + 20)]
+            ops += [_line(a, b, L_SASH) for a, b in zip(pts, pts[1:])]
+            ty = H - (max(y1, top_at((x1 + x2) / 2)) + y2) / 2
+            ops.append(_text(((x1 + x2) / 2, ty), "глухое", min(sw, sh) * 0.1, L_TEXT))
             continue
         ops.append(_rect(sx, sy, sw, sh, L_SASH))
         if t == "glass" and "sash" in l:

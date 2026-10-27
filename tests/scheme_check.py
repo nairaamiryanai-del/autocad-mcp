@@ -1,6 +1,7 @@
 """MCP: импорт замеров «К-Замер» с петлями, фрамугами и видом снаружи (ezdxf).
 Запуск: .venv\\Scripts\\python tests\\scheme_check.py"""
 import json
+import math
 import os
 import sys
 
@@ -96,6 +97,14 @@ sh_item = O.kzamer_item("construct", {"width": 1400, "height": 2100, "frame": js
 sh_texts = [o["text"] for o in C.build(sh_item["kind"], sh_item["params"]) if o["op"] == "text"]
 check("штульп: подписи рабочая и пассивная", "рабочая" in sh_texts and "пассивная" in sh_texts, f"{sh_texts}")
 check("штульп: спецификация с ролями", C.frame_short(sh_door, 1400, 2100) == "2 пол.: дверь п.лев. пасс., дверь п.прав. раб.", C.frame_short(sh_door, 1400, 2100))
+# арочное окно: верх дугой, площадь без уголков, спецификация с аркой
+arch = {"arch": 0.5, "split": {"dir": "h", "sizes": [700, 1400], "parts": [{"fill": {"t": "glass"}}, {"fill": {"t": "tiltturn", "hinge": "left"}}]}}
+ar_item = O.kzamer_item("construct", {"width": 1400, "height": 2100, "frame": json.dumps(arch)})
+ar_ops = C.build(ar_item["kind"], ar_item["params"])
+top_y = max(max(o["p1"][1], o["p2"][1]) for o in ar_ops if o["op"] == "line" and o["layer"] == C.L_FRAME)
+check("арка: вершина дуги на высоте изделия, углы срезаны", abs(top_y - 2100) < 1 and not any(o["op"] == "line" and o["layer"] == C.L_FRAME and abs(o["p1"][1] - 2100) < 1 and abs(o["p2"][1] - 2100) < 1 and abs(o["p1"][0] - o["p2"][0]) > 100 for o in ar_ops))
+check("арка: площадь без уголков", abs(O._area(ar_item) - (1400 * 2100 - (1400 * 700 - math.pi * 700 ** 2 / 2)) / 1e6) < 0.002, f"{O._area(ar_item)}")
+check("арка: в спецификации", C.frame_short(arch, 1400, 2100).startswith("арка 700, "), C.frame_short(arch, 1400, 2100))
 check("раздвижная в обе стороны: два наконечника", [slide_heads("left"), slide_heads("both")] == [3, 5], f"{[slide_heads('left'), slide_heads('both')]}")
 check("конструктор: петли сверху при изделии внутрь сплошные", not any(o.get("dashed") for o in top_ops if o["op"] == "line" and o["layer"] == C.L_OPEN))
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
