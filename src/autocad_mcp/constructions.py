@@ -497,6 +497,8 @@ def frame_short(node: dict[str, Any], W: float, H: float) -> str:
         s = _FILL_SHORT.get(f.get("t"), "?")
         if f.get("hinge"):
             s += " п.прав." if f["hinge"] == "right" else " п.лев."
+        if f.get("passive") is not None:
+            s += " пасс." if f["passive"] else " раб."
         if l.get("parts"):
             s += " с имп."
         parts.append(s)
@@ -576,11 +578,13 @@ def build_frame(p: dict[str, Any]) -> list[Op]:
         handle = "Левая" if hinge == "right" else "Правая"
         nonlocal ops
         ops += _opening_symbol(sx, sy, sw, sh, _FILL_TYPE[t], handle, dashed)
-        if t in ("turn", "tiltturn", "door"):
+        passive = fill.get("passive")  # створка штульпа: True пассивная (без ручки), False рабочая
+        if t in ("turn", "tiltturn", "door") and not passive:
             hx = (x2 - 45) if handle == "Правая" else (x1 + 45)
             ops += _handle(hx, sy + sh / 2)
         if t == "door":
-            ops.append(_text((sx + sw / 2, sy + min(sh, sw) * 0.12), "дверь", min(sw, sh) * 0.08, L_TEXT))
+            word = "дверь" if passive is None else ("пассивная" if passive else "рабочая")
+            ops.append(_text((sx + sw / 2, sy + min(sh, sw) * 0.12), word, min(sw, sh) * 0.08, L_TEXT))
 
     # створки с импостом в створке: контур и символ на всю створку, части рисуются ниже как глухие/панели
     for s in L["sashes"]:

@@ -89,6 +89,13 @@ bb_ops = C.build(bb_item["kind"], bb_item["params"])
 floor = [o for o in bb_ops if o["op"] == "line" and o["layer"] == C.L_FRAME and abs(o["p1"][1]) < 1 and abs(o["p2"][1]) < 1]
 check("балконный блок: по полу рама только у двери", bool(floor) and all(max(o["p1"][0], o["p2"][0]) <= 700.5 for o in floor), f"{[(o['p1'], o['p2']) for o in floor]}")
 check("балконный блок: площадь без стены", abs(O._area(bb_item) - (2100 * 2150 - 1400 * 700) / 1e6) < 1e-6, f"{O._area(bb_item)}")
+# штульп: рабочая створка с ручкой, пассивная без
+sh_door = {"split": {"dir": "v", "sizes": [700, 700], "shtulp": True, "parts": [
+    {"fill": {"t": "door", "hinge": "left", "passive": True}}, {"fill": {"t": "door", "hinge": "right", "passive": False}}]}}
+sh_item = O.kzamer_item("construct", {"width": 1400, "height": 2100, "frame": json.dumps(sh_door)})
+sh_texts = [o["text"] for o in C.build(sh_item["kind"], sh_item["params"]) if o["op"] == "text"]
+check("штульп: подписи рабочая и пассивная", "рабочая" in sh_texts and "пассивная" in sh_texts, f"{sh_texts}")
+check("штульп: спецификация с ролями", C.frame_short(sh_door, 1400, 2100) == "2 пол.: дверь п.лев. пасс., дверь п.прав. раб.", C.frame_short(sh_door, 1400, 2100))
 check("раздвижная в обе стороны: два наконечника", [slide_heads("left"), slide_heads("both")] == [3, 5], f"{[slide_heads('left'), slide_heads('both')]}")
 check("конструктор: петли сверху при изделии внутрь сплошные", not any(o.get("dashed") for o in top_ops if o["op"] == "line" and o["layer"] == C.L_OPEN))
 bal = O.kzamer_item("balcony", {"blockWidth": 2100, "blockHeight": 2150, "doorWidth": 700, "doorOpening": "Слева",
